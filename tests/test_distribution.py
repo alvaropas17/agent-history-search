@@ -26,6 +26,12 @@ class Distribution(unittest.TestCase):
                 prefix = 'agent-history-search/'
                 expected = {prefix + name for name in builder.FILES} | {prefix + 'MANIFEST.json'}
                 self.assertEqual(set(names), expected)
+                for guide in ('docs/SETUP-PROMPT.md', 'docs/POCKET.md',
+                              'skill/SKILL.md', 'skill/references/usage.md'):
+                    self.assertIn(prefix + guide, names)
+                pocket_guide = archive.read(prefix + 'docs/POCKET.md').decode('utf-8')
+                self.assertIn('helper externo', pocket_guide)
+                self.assertIn('no incluye una extensión nativa', pocket_guide)
                 self.assertFalse(any('backup' in name or '.db' in name or '.sqlite' in name or '.jsonl' in name for name in names))
                 manifest = json.loads(archive.read(prefix + 'MANIFEST.json'))
                 self.assertEqual(manifest['version'], '0.2.2')

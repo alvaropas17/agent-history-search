@@ -2,9 +2,27 @@
 
 Paquete Python autónomo para consultar historiales locales de **Pi terminal**, **omp**, **OpenCode oc2**, **Pi Pocket**, **Codex** y **Claude Code**. No depende de otros scripts, servicios, paquetes pip, credenciales ni rutas de una máquina concreta.
 
-Incluye búsqueda literal Unicode, listado reciente y lectura por identificadores exactos (`read` o `expand`). Entrega JSON trazable y límites de cobertura. Es una **CLI con skill opcional**, no una herramienta nativa en los tres productos.
+Incluye búsqueda literal Unicode, listado reciente y lectura por identificadores exactos (`read` o `expand`). Entrega JSON trazable y límites de cobertura. Es una **CLI con skill opcional**, no una herramienta nativa ni un plugin obligatorio.
 
-## Ampliación local: Codex, Claude Code y omp
+## Configúralo con tu IA
+
+1. Descarga o descomprime este paquete en una carpeta estable.
+2. Abre tu asistente habitual y pega el [prompt de configuración](docs/SETUP-PROMPT.md),
+   indicando la ruta del paquete, el harness y los historiales que autorizas.
+3. La IA comprueba Python, prueba el helper y configura una skill o instrucciones
+   locales para que puedas pedir «qué hice ayer» o «busca dónde hablamos de X».
+
+**No necesitas integración nativa.** El mismo helper se invoca por CLI desde
+cualquier harness con ejecución local y acceso autorizado a esos archivos.
+No basta con pegar un enlace si el asistente no puede ejecutar comandos o ver
+el disco donde están tus conversaciones.
+
+**Pi Pocket también puede usarlo así.** Consulta [uso externo e integración
+opcional en Pocket](docs/POCKET.md). La integración nativa es posterior y no viene
+incluida como extensión instalable. El historial propio de Pocket mediante esta
+CLI requiere un snapshot coherente sin WAL; otros lectores usan sus JSONL locales.
+
+## Fuentes compatibles: Codex, Claude Code y omp
 
 La CLI admite `--host codex`, `--host claude` y `--host omp`, con las mismas
 operaciones `search`, `list` y `expand`. `read` es alias de `expand` y exige sesión

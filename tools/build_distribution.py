@@ -24,6 +24,7 @@ FILES = (
     'docs/DISTRIBUTION.md',
     'docs/SCHEMAS.md',
     'docs/SETUP-PROMPT.md',
+    'docs/POCKET.md',
     'skill/SKILL.md',
     'skill/references/usage.md',
     'tests/test_history_search.py',
