@@ -39,4 +39,12 @@ Revisa `state` y `evidence`: `failure` indica fallo registrado; `no_failure_reco
 
 Para cambiar fuente añade --source y --reason con la petición explícita; conserva --host real. Fechas inclusivas UTC. Un vacío no cambia de fuente. Los IDs de Pocket son enteros positivos; --session corresponde a conversation_id y --entry a entry_id. expand puede contener varios mensajes de una entrada: message_index permite distinguirlos.
 
+Si la base de OpenCode o Pocket tiene un archivo -wal (app abierta), el lector la rechaza. Ofrece dos opciones: que el usuario cierre la app del todo y compruebes que ya no hay -wal, o, solo con su permiso expreso, crear una copia coherente en un archivo nuevo:
+
+~~~sh
+py -3 -B /ruta/agent-history-search/tools/sqlite_snapshot.py /ruta/opencode.db /ruta/snapshots/opencode-FECHA.db
+~~~
+
+La herramienta usa la API de backup de SQLite, nunca sobrescribe y no se ejecuta sola. La copia contiene historial privado: guárdala en un lugar privado.
+
 No ejecutes scripts externos del antiguo scaffold. Este paquete incluye sus propios lectores. Para SQLite exige snapshot coherente sin WAL y no crea ni refresca índices. En Pocket en vivo prefiere la herramienta nativa. Los límites y las omisiones se anuncian; no conviertas un resultado incompleto en afirmación de ausencia.

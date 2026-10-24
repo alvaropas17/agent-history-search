@@ -10,7 +10,7 @@ python -B tools/build_distribution.py
 
 El builder utiliza una lista cerrada de archivos; no empaqueta cualquier archivo que aparezca en el repositorio. Cada archivo debe existir y no ser symlink. Escribe en modo exclusivo en dist/agent-history-search-0.3.0.zip y su .sha256. Si ya existen, se detiene: no sobrescribe ni borra la versión previa. Para otro destino usa --output /ruta/nueva.zip. Los nombres incluidos son relativos, sin traversal. MANIFEST.json contiene ruta y SHA-256 por archivo.
 
-No se ejecutan consultas de historial ni red durante el build. scaffold-backup-v1/ conserva la entrega anterior solo en la máquina de trabajo y nunca se distribuye. tools/inspect_schema.py y tools/snapshot_scaffold.py tampoco forman parte del ZIP. Las pruebas solo generan fixtures temporales sintéticos.
+No se ejecutan consultas de historial ni red durante el build. scaffold-backup-v1/ conserva la entrega anterior solo en la máquina de trabajo y nunca se distribuye. tools/inspect_schema.py y tools/snapshot_scaffold.py tampoco forman parte del ZIP. tools/sqlite_snapshot.py sí se incluye: el propietario lo ejecuta para copiar una base SQLite en vivo a un snapshot sin WAL. Las pruebas solo generan fixtures temporales sintéticos.
 
 ## Configuración por IA y Pocket
 

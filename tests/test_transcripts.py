@@ -46,6 +46,24 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual(self.invoke('claude', rows, 'list')['results'][0]['title'], 'Hola needle')
         self.assertEqual(len(self.invoke('claude', rows, 'read', ['--session', 'cl', '--entry', 'a1'])['results']), 1)
 
+    def test_empty_rollout_is_skipped_not_fatal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            day = Path(folder) / '2026' / '04' / '10'
+            day.mkdir(parents=True)
+            (day / 'rollout-empty.jsonl').write_bytes(b'')
+            (day / 'rollout-full.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in [
+                {'type': 'session_meta', 'payload': {'id': 'cx'}},
+                {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user',
+                                                      'content': [{'type': 'input_text', 'text': 'pricing needle'}]}}]),
+                encoding='utf-8')
+            args = parser().parse_args(['search', '--host', 'codex', '--store', folder, '--query', 'needle'])
+            result = read(args, plan(args))
+            self.assertEqual(len(result['results']), 1)
+            self.assertIn('empty_transcript_skipped', result['notes'])
+            (day / 'rollout-odd.jsonl').write_text('{"type":"unknown"}\n', encoding='utf-8')
+            with self.assertRaisesRegex(Exception, 'unsupported_transcript_schema'):
+                read(args, plan(args))
+
     def test_cross_source_requires_reason(self):
         args = parser().parse_args(['list', '--host', 'pi', '--source', 'claude', '--store', '.'])
         with self.assertRaisesRegex(Exception, 'source_change'):

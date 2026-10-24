@@ -24,7 +24,7 @@ Carga al buscar, listar o ampliar conversaciones guardadas, también ante «qué
 - Pi/omp: JSONL v2/v3 y cadena de padres de la hoja persistida.
 - Codex/Claude Code: JSONL; en modo texto, solo user/assistant. Sin verificación de rama activa. Usa un archivo concreto para leer una sesión seleccionada.
 - Herramientas: activa --tool-calls explícitamente para buscar argumentos/resultados guardados; no se incluyen en modo texto. --tool exige nombre exacto y --state failure exige evidencia registrada, no la palabra «error». En Pocket en vivo usa primero su history_search nativo con toolCalls.
-- oc2/Pocket: snapshot SQLite coherente sin WAL; si hay WAL, para. No lo borres.
+- oc2/Pocket: snapshot SQLite coherente sin WAL; si hay WAL, para. No lo borres. Ofrece al usuario cerrar la app del todo o, con su permiso expreso, copiar la base en vivo a un archivo nuevo con tools/sqlite_snapshot.py; después usa esa copia como --store.
 - Esquema desconocido: informa el límite; no cambies a otra fuente.
 
 ## Execution Steps

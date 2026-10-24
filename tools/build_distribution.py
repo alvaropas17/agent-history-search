@@ -31,6 +31,8 @@ FILES = (
     'tests/test_history_search.py',
     'tests/test_distribution.py',
     'tools/build_distribution.py',
+    'tools/sqlite_snapshot.py',
+    'tests/test_snapshot.py',
 )
 
 

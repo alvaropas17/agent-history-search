@@ -40,7 +40,7 @@ def load(file, source, budget):
     if before['bytes'] > MAX_FILE or before['bytes'] > budget.bytes_left:
         budget.note('transcript_file_exceeds_byte_budget')
         return None
-    sid, cwd, messages, events = None, None, [], []
+    sid, cwd, messages, events, seen = None, None, [], [], False
     with file.open('rb') as stream:
         for number in range(1, 100002):
             raw = stream.readline(MAX_LINE + 1)
@@ -53,6 +53,7 @@ def load(file, source, budget):
                 return None
             if not raw.strip():
                 continue
+            seen = True
             try:
                 row = read_json(raw)
             except HistoryError:
@@ -118,6 +119,10 @@ def load(file, source, budget):
         budget.note('transcript_changed_during_read')
         return None
     if not isinstance(sid, str) or not sid:
+        if not seen:
+            # Interrupted sessions can leave an empty rollout; it holds nothing to read.
+            budget.note('empty_transcript_skipped')
+            return None
         raise HistoryError('unsupported_transcript_schema')
     return sid, cwd, messages, events, before
 

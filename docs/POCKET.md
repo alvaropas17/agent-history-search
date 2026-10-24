@@ -36,10 +36,17 @@ If your Pocket already provides `history_search`, use it first for that instance
 Do not use the helper to bypass an error from that tool or delete WAL files to
 force a query.
 
-To query Pocket's own history with this CLI, provide a consistent snapshot created
-using the owner's backup procedure or after a clean shutdown. The CLI does not
-create snapshots, stop services, or migrate data. A list request with `--plan`
-validates arguments only, not database availability or schema.
+To query Pocket's own history with this CLI, either close Pocket completely and
+check that there is no `pocket.sqlite-wal` file, or make a snapshot while it runs
+with the included tool, which uses SQLite's online backup API and never overwrites:
+
+```powershell
+py -3 -B tools\sqlite_snapshot.py "$HOME\.pi-pocket\pocket.sqlite" "$HOME\history-snapshots\pocket-2026-10-24.sqlite"
+```
+
+Then point `--store` at the snapshot. The reader itself never creates snapshots,
+stops services, or migrates data. A list request with `--plan` validates arguments
+only, not database availability or schema.
 
 ## Optional native integration later
 

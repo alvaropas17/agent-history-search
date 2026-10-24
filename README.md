@@ -1,130 +1,280 @@
 # Agent History Search
 
-Paquete Python autónomo para consultar historiales locales de **Pi terminal**, **omp (Oh My Pi)**, **OpenCode oc2**, **Pi Pocket**, **Codex** y **Claude Code**. No depende de otros scripts, servicios, paquetes pip, credenciales ni rutas de una máquina concreta.
+Search your past conversations with coding agents, from any of them. One
+read-only Python helper for **Claude Code**, **Codex**, **OpenCode**, **Pi**,
+**omp (Oh My Pi)** and **Pi Pocket**. No pip packages, servers, plugins, MCP,
+accounts or network access.
 
-Incluye búsqueda literal Unicode, listado reciente y lectura por identificadores exactos (`read` o `expand`). Entrega JSON trazable y límites de cobertura. Es una **CLI con skill opcional**, no una herramienta nativa ni un plugin obligatorio.
+Ask your agent things like:
 
-## Configúralo con tu IA
+- "What did I do yesterday in Claude Code?"
+- "Where did we leave off?"
+- "Find where we decided the pricing. Check Codex too."
+- "Which command failed last week, and how did we fix it?"
 
-1. Descarga o descomprime este paquete en una carpeta estable.
-2. Abre tu asistente habitual y pega el [prompt de configuración](docs/SETUP-PROMPT.md),
-   indicando la ruta del paquete, el harness y los historiales que autorizas.
-3. La IA comprueba Python, prueba el helper y configura una skill o instrucciones
-   locales para que puedas pedir «qué hice ayer» o «busca dónde hablamos de X».
+The agent runs this CLI, gets JSON back with exact references, and answers
+from your own history.
 
-**No necesitas integración nativa.** El mismo helper se invoca por CLI desde
-cualquier harness con ejecución local y acceso autorizado a esos archivos.
-No basta con pegar un enlace si el asistente no puede ejecutar comandos o ver
-el disco donde están tus conversaciones.
+## What it does
 
-**Pi Pocket también puede usarlo así.** Consulta [uso externo e integración
-opcional en Pocket](docs/POCKET.md). La integración nativa es posterior y no viene
-incluida como extensión instalable. El historial propio de Pocket mediante esta
-CLI requiere un snapshot coherente sin WAL; otros lectores usan sus JSONL locales.
+- **Search** past conversations for a literal phrase (Unicode, case-insensitive).
+- **List** recent sessions, and **read** one by its exact session ID, optionally
+  around one entry, without loading the whole conversation.
+- **Inspect tool calls** (opt-in `--tool-calls`): commands, arguments and results,
+  with failures flagged only when the history records real evidence of them.
+- **Stay read-only:** it never writes to, indexes or migrates your histories.
+- **No silent source switching:** it reads the agent you are in. Another agent's
+  history needs your explicit request (`--source` plus `--reason`), and it never
+  falls back to another source after an error or an empty result.
+- **Be honest about gaps:** limits, skipped files and partial results are reported
+  in `incomplete` and `notes`. An incomplete empty result is not proof of absence.
 
-## Fuentes compatibles: Codex, Claude Code y omp (Oh My Pi)
+## Requirements
 
-La CLI admite `--host codex`, `--host claude` y `--host omp`, con las mismas
-operaciones `search`, `list` y `expand`. `read` es alias de `expand` y exige sesión
-exacta. Selecciona siempre `--store`: Codex acepta `~/.codex/sessions` (hasta tres
-niveles de fecha); Claude Code acepta `~/.claude/projects` (un nivel de proyecto);
-omp acepta su directorio de sesiones compatible con Pi. Un archivo JSONL concreto
-reduce el alcance. Archivos archivados y subagentes anidados requieren otra ruta
-explícita. No se consulta la nube ni se descubren perfiles.
+- Windows 10 or 11 (the platform it is tested on).
+- Python 3.10 or newer, with the standard `sqlite3` module. Check with `py -3 --version`.
+- Nothing to install: the package runs from its folder.
 
-Codex lee `response_item.message` con bloques `input_text`/`output_text`; Claude
-lee registros `user`/`assistant` con bloques de texto. En modo texto excluye herramientas,
-razonamiento, instrucciones internas y eventos duplicados. Ordena archivos por
-mtime y mensajes por orden persistido inverso. No verifica ramas activas,
-compactaciones ni reverts de estos formatos. Los límites de recursos y las
-comprobaciones de cambios durante lectura siguen aplicándose.
+## Set it up
 
-## Inicio rápido
+Setup is the same six steps whoever does them. Do them yourself, or let your AI do
+them for you: download the package (step 1), open your usual coding agent with access
+to that folder, and paste the prompt from
+**[docs/SETUP-PROMPT.md](docs/SETUP-PROMPT.md)** with the folder, the agent you will
+use it from, and which histories it may read. Your AI follows these same steps, asks
+before reading any real history or editing any config, backs up files first, and
+tells you which steps it completed. You can also mix both: let it do everything and
+check each step against this list.
 
-Requiere Python 3.10+ con sqlite3. Descomprime el paquete y ejecuta desde su carpeta:
+1. **Get the package.** Clone or download it into a stable folder, for example
+   `C:\Tools\agent-history-search`.
+2. **Check that it runs.** In PowerShell, from that folder:
 
-~~~sh
-python -B history_search.py --help
-python -B -m unittest discover -s tests -v
-python -B history_search.py list --host pi --store "/ruta/sessions" --plan
-python -B history_search.py search --host pi --store "/ruta/sessions" --query "tema" --limit 5
-python -B history_search.py expand --host pi --store "/ruta/sesion.jsonl" --session "ID-SESION" --entry "ID-ENTRADA"
-python -B history_search.py list --host opencode --store "/ruta/snapshot-oc2.db"
-python -B history_search.py search --host pocket --store "/ruta/snapshot-pocket.sqlite" --query "tema"
-python -B history_search.py expand --host pocket --store "/ruta/snapshot-pocket.sqlite" --session 7 --entry 11
-~~~
+   ```powershell
+   py -3 -B history_search.py --help
+   py -3 -B -m unittest discover -s tests
+   ```
 
-En Windows puedes sustituir `python` por `py -3`. También funciona `python -B -m agent_history` desde la carpeta del paquete. No hace falta instalarlo.
+3. **Find your histories.** These are the default locations on Windows. Yours may
+   differ if you changed the agent's data folder.
 
-Elige siempre el almacén autorizado mediante `--store`. No se descubren perfiles automáticamente. Pi admite un archivo o un directorio de sesiones con un nivel de subcarpetas. SQLite exige el archivo concreto, no un directorio.
+   | Agent | `--host` | Default `--store` on Windows |
+   |---|---|---|
+   | Claude Code | `claude` | `$HOME\.claude\projects` |
+   | Codex | `codex` | `$HOME\.codex\sessions` |
+   | Pi | `pi` | `$HOME\.pi\agent\sessions` |
+   | omp (Oh My Pi) | `omp` | `$HOME\.omp\agent\sessions` |
+   | OpenCode | `opencode` | `$HOME\.local\share\opencode\opencode.db` (needs a snapshot, see below) |
+   | Pi Pocket | `pocket` | `$HOME\.pi-pocket\pocket.sqlite` (needs a snapshot, see below) |
 
-## Llamadas y resultados de herramientas (opcional)
+4. **Try it.** `--plan` only validates the route; the next commands read for real:
 
-Activa `--tool-calls` para consultar herramientas en lugar de texto user/assistant.
-Sin este flag, el modo texto sigue excluyéndolas. Disponible en los seis lectores:
-Pi, omp (Oh My Pi), oc2, Pocket, Codex y Claude Code.
+   ```powershell
+   py -3 -B history_search.py list --host claude --store "$HOME\.claude\projects" --plan
+   py -3 -B history_search.py list --host claude --store "$HOME\.claude\projects" --limit 5
+   py -3 -B history_search.py search --host claude --store "$HOME\.claude\projects" --query "pricing" --limit 5
+   ```
 
-~~~sh
-python -B history_search.py search --host claude --store ~/.claude/projects --tool-calls --state failure --tool Bash
-python -B history_search.py search --host pi --store /ruta/sessions --tool-calls --query "npm test"
-python -B history_search.py read --host codex --store /ruta/rollout.jsonl --session ID-EXACTO --tool-calls
-~~~
+5. **Teach your agent to use it.** Expose the package's `skill\` folder under the name
+   `agent-history-search` in a folder your agent loads skills from. A junction avoids
+   copying, so updates to the package reach the skill:
 
-- `search` admite query vacía en este modo; si hay `--query`, busca una subcadena literal sin distinguir mayúsculas en argumentos o resultado.
-- `--tool` filtra por nombre exacto, incluidas mayúsculas (`Bash` no es `bash`). `--state failure` conserva solo fallos con evidencia reconocida; ambos filtros requieren `--tool-calls`. `--state any` es el valor predeterminado.
-- `list` no admite `--tool-calls`. `read`/`expand` exigen sesión exacta; `--entry` puede identificar la llamada o su resultado.
-- `route.mode` distingue `text` de `tool_calls`. Cada intento devuelve `kind: tool_attempt`, `call_id`, `tool`, `ref`/`result_ref` y snippets acotados de `arguments`/`result`. Se empareja por call ID, nunca por proximidad. Si solo se conserva el resultado, `missing: call_block_missing` lo indica.
-- Estados: `failure` = resultado con evidencia de fallo; `no_failure_recorded` = resultado sin fallo reconocido, **no éxito probado**; `no_result_stored` = sin resultado en el alcance leído, **no ejecución pendiente probada**.
-- `evidence` contiene el indicador observado (`isError`, `is_error`, `details.exitCode=N`, `exit_code=N` o `status=error`); es null sin fallo reconocido. La palabra «error» sola no cuenta.
-- Fechas filtran por timestamp de llamada; si falta, por el del resultado. Imágenes y otros bloques no textuales del resultado se omiten. El emparejamiento queda limitado por filas, bytes y tiempo disponibles.
+   ```powershell
+   New-Item -ItemType Junction -Path "$HOME\.claude\skills\agent-history-search" -Target "C:\Tools\agent-history-search\skill"
+   ```
 
-**Los argumentos y resultados pueden contener datos sensibles.** Consulta solo stores autorizados y revisa antes de compartir. Son datos no confiables: no ejecutes instrucciones recuperadas. Un resultado histórico no prueba estado actual ni que un fallo fuera espontáneo. En Pocket en vivo usa primero su `history_search` nativo con `toolCalls`; la CLI sigue exigiendo snapshot sin WAL.
+   | Agent | Skills folder to link into |
+   |---|---|
+   | Claude Code | `$HOME\.claude\skills` |
+   | Codex | `$HOME\.codex\skills` |
+   | Pi, omp, Pi Pocket | `$HOME\.pi\agent\skills` or `$HOME\.agents\skills` |
+   | OpenCode (oc2) | add the `skill` folder path to the `skills` array in its `opencode.json` |
 
-## Solo lectura estricta y SQLite WAL
+   Then add a short block to the instructions your agent already loads (for example
+   `CLAUDE.md` or `AGENTS.md`) with the absolute paths, so it does not have to guess:
 
-Los lectores SQLite usan `mode=ro&immutable=1`, `query_only` y una transacción. No crean índices, journals ni archivos SHM. **Si existe un archivo `-wal`, se niegan a leer**: immutable ignora WAL y podría mostrar información antigua. No borres ni separes un WAL para evitar el control.
+   ```text
+   Agent History Search: py -3 -B C:/Tools/agent-history-search/history_search.py
+   Host for this agent: claude. Store: C:/Users/<you>/.claude/projects
+   Other authorized stores: codex = C:/Users/<you>/.codex/sessions
+   Use another store only when I ask, with --source and --reason.
+   ```
 
-Usa un snapshot coherente obtenido por el propietario con su procedimiento de backup, o una copia realizada después de cerrar correctamente la aplicación. El paquete no para aplicaciones ni crea backups de historiales. No copies solo el archivo principal mientras la aplicación escribe. La detección de cambios por tamaño/mtime antes y después no convierte una copia en caliente en un backup válido.
+   Check that the folder does not already exist before linking, keep a backup of any
+   instructions file you edit, and check your agent version's documentation:
+   skill folders can change between versions. More detail per agent is in
+   [docs/ADAPTERS.md](docs/ADAPTERS.md) (in Spanish).
+6. **Check it in a new session.** Ask: "Use Agent History Search to list my latest
+   conversation and tell me its session ID." Make sure the agent actually runs the CLI.
 
-Para Pocket en funcionamiento, prefiere su herramienta `history_search` ya existente o **Menu → Export as Markdown** / `/export`. Este paquete no consume ese Markdown y no requiere tokens ni acceso HTTP. La CLI SQLite es un lector offline de un esquema explícito, no una API pública estable de Pocket.
+## OpenCode and Pi Pocket: if the app is open
 
-## Fuente explícita
+OpenCode and Pi Pocket keep their history in a SQLite database. While the app is
+running, SQLite keeps recent changes in a separate `-wal` file next to it, and this
+helper **refuses to read a database that has a `-wal` file**: reading it would give
+outdated or inconsistent results. You get the error
+`wal_store_requires_consistent_offline_snapshot`. Pick one of these:
 
-El anfitrión se obtiene del contexto real, nunca del cwd o del modelo. Otra fuente requiere petición expresa y motivo:
+1. **Close the app completely**, then check that there is no `opencode.db-wal` or
+   `pocket.sqlite-wal` file next to the database. If there is none, point `--store`
+   at the database. If the `-wal` file is still there, the app or another process
+   still has it open. **Never delete the `-wal` file**: it holds your most recent
+   conversations.
+2. **Make a snapshot without closing the app.** The included tool copies the live
+   database with SQLite's online backup API, which is consistent while the app
+   writes. It never overwrites a file. Point `--store` at the copy:
 
-~~~sh
-python -B history_search.py search --host pocket --source pi --reason "El usuario pidió Pi terminal" --store "/ruta/sessions" --query "tema"
-~~~
+   ```powershell
+   py -3 -B tools\sqlite_snapshot.py "$HOME\.local\share\opencode\opencode.db" "$HOME\history-snapshots\opencode-2026-10-24.db"
+   py -3 -B history_search.py list --host opencode --store "$HOME\history-snapshots\opencode-2026-10-24.db" --limit 5
+   ```
 
-Errores o resultados vacíos no cambian de fuente. En Pocket usa primero la herramienta nativa si existe; no uses esta CLI como bypass tras un error. Para otra instancia, identifica también esa instancia y su autorización: `--reason` es evidencia declarada, no una comprobación automática de consentimiento.
+   A snapshot does not update itself: make a new one, with a new file name, when you
+   need newer conversations. Snapshots contain your private history, so keep them
+   somewhere only you can read and delete them when you no longer need them.
 
-## Contrato y cobertura
+**Inside Pi Pocket**, if your Pocket already has its own `history_search` tool, use it
+first for Pocket's own history: it reads the live database. Pi Pocket can always use
+this helper to search your other agents (Claude Code, Codex, Pi...). See
+[docs/POCKET.md](docs/POCKET.md), which also explains the optional native integration.
 
-- `status`: ok, plan o error. Vacío correcto es ok con results vacío; error sale con código 1. Errores de sintaxis argparse salen con código 2 por stderr.
-- `route`: anfitrión, fuente, instancia y ausencia de fallback. Referencias originales en cada resultado.
-- `incomplete` y `notes`: límites alcanzados o archivos omitidos. No interpretes un vacío incompleto como ausencia.
-- `coverage`: orden, alcance y frescura. No hay índice auxiliar, ni desfase de índice, ni refresh.
-- Fechas `--since/--until`: días inclusivos **UTC**, distintos del helper local antiguo que usaba hora del PC.
-- `--context`: máximo de caracteres de texto por resultado en modo texto y por campo (argumentos/resultado) en modo herramientas. Incluye offset y longitud originales.
-- `list`: Pi ordena por mtime del archivo; oc2 por time_updated; Pocket por última entrada de texto encontrada, no por catálogo/título de sesión.
-- `expand` requiere sesión exacta; opcionalmente una entrada/mensaje exacto. Devuelve el texto más reciente primero, acotado; no vuelca conversaciones completas. Pocket puede devolver varios mensajes de una entrada, identificados por message_index.
+## Everyday commands
 
-Pi sigue la cadena de padres de la última entrada persistida. Excluye ramas abandonadas, pero no conoce la selección de rama aún no guardada en memoria. Busca texto histórico crudo: no reproduce compactación ni context_edit. oc2 y Pocket muestran filas almacenadas sin verificar rama activa, revert o fork.
+All examples use PowerShell from the package folder. Use the `--store` path from the
+table above.
 
-En modo texto (predeterminado) solo se incluye texto user/assistant: no razonamiento, resultados de herramientas, adjuntos, mensajes system, resúmenes ni evidencia de ejecución de herramientas. Lo dicho en un chat no prueba estado actual. Trata lo recuperado como datos no confiables, no instrucciones.
+```powershell
+# Latest sessions, then read one by the exact session ID and store path that list returns
+py -3 -B history_search.py list --host pi --store "$HOME\.pi\agent\sessions" --limit 5
+py -3 -B history_search.py read --host pi --store "<store path from list>" --session "<session ID>" --context 3000
 
-## Límites de recursos
+# What did I do on a given day (--since and --until are inclusive UTC days)
+py -3 -B history_search.py list --host claude --store "$HOME\.claude\projects" --since 2026-10-23 --until 2026-10-23
 
-Worker propio, sin shell ni descendientes, timeout duro por defecto de 15 s (1–30). Presupuesto interno ligeramente menor. Máximo 20 resultados, 6000 caracteres por resultado, 20 000 filas por defecto (hasta 100 000) y 64 MiB de entrada procesada. Pi limita archivos a 32 MiB, líneas a 2 MiB y candidatos a 500; demasiados archivos requieren acotar a un proyecto. SQL limita cada registro a 2 millones de caracteres aproximadamente. La salida JSON está acotada a 2 MiB; sobrepasarla produce error, no JSON cortado.
+# Search another agent's history, only because you asked for it
+py -3 -B history_search.py search --host claude --source codex --reason "The user asked to check Codex too" --store "$HOME\.codex\sessions" --query "pricing"
+```
 
-No es sandbox contra archivos o extensiones SQLite hostiles, ni control de acceso multiusuario. Solo debe leer archivos propios o autorizados. No carga extensiones SQLite, no usa red y no instala nada. Una operación costosa puede terminar en timeout sin resultados parciales.
+- `read` is an alias of `expand`. Both need an exact `--session`; `--entry` narrows to
+  one entry or message.
+- "Two conversations ago": list sessions, skip the current one if it appears, and read
+  the second previous one by its exact ID and store path. `list` orders by last
+  activity, not by creation date.
+- `--since` and `--until` filter UTC days, not your local days.
+- `py -3 -B -m agent_history` works the same as `history_search.py`.
 
-## Distribución local y licencia
+## Tool calls and results (opt-in)
 
-~~~sh
-python -B tools/build_distribution.py
-~~~
+Add `--tool-calls` to search or read tool calls instead of user/assistant text.
+Without it, text mode keeps excluding tools. It works with all six agents.
 
-Genera un ZIP de allowlist y SHA-256, sin config, historiales, backups ni archivos arbitrarios del árbol. Rechaza sobrescribir un ZIP existente. No publica ni hace commit. Véanse `docs/DISTRIBUTION.md` y `NOTICE.md`: **MIT aprobada para el código y la documentación nuevos**, con `Copyright (c) 2026 alvaropas17` en `LICENSE`. No se atribuye consentimiento para relicenciar terceros.
+```powershell
+py -3 -B history_search.py search --host claude --store "$HOME\.claude\projects" --tool-calls --state failure --tool Bash
+py -3 -B history_search.py search --host pi --store "$HOME\.pi\agent\sessions" --tool-calls --query "npm test"
+py -3 -B history_search.py read --host codex --store "<rollout .jsonl path>" --session "<session ID>" --tool-calls
+```
 
-Guías: [Adaptadores](docs/ADAPTERS.md), [prompt de instalación](docs/SETUP-PROMPT.md), [formatos](docs/SCHEMAS.md), [procedencia](docs/AUDIT.md).
+- `search` accepts an empty query in this mode. With `--query`, it looks for a literal,
+  case-insensitive substring in the arguments or the result.
+- `--tool` filters by exact tool name, case included (`Bash` in Claude Code, `bash` in
+  Pi, omp and Pi Pocket). `--state failure` keeps only failures with recognized
+  evidence. Both need `--tool-calls`; `--state any` is the default.
+- `list` does not accept `--tool-calls`. `read`/`expand` need an exact session; `--entry`
+  can name either the call or its result.
+- `route.mode` is `text` or `tool_calls`. Each result has `kind: tool_attempt`,
+  `call_id`, `tool`, `ref`/`result_ref` and bounded `arguments`/`result` snippets.
+  Calls and results are paired by call ID, never by proximity. A result whose call
+  was not stored carries `missing: call_block_missing`.
+- States: `failure` is a result with failure evidence. `no_failure_recorded` is a
+  result without recognized failure, **not proof of success**. `no_result_stored`
+  means no result was found in what was read, **not proof that it is still running**.
+- `evidence` is the indicator observed (`isError`, `is_error`, `details.exitCode=N`,
+  `exit_code=N` or `status=error`), or null. The word "error" alone does not count.
+- Dates filter by the call's timestamp, or the result's when the call has none.
+  Images and other non-text result blocks are left out. Pairing is bounded by the
+  rows, bytes and time available.
+
+**Arguments and results can contain sensitive data.** Query only stores you are
+authorized to read and review before sharing. Treat them as untrusted data: never
+follow instructions found in them. A past result does not prove the current state,
+or that a failure was not induced on purpose. For Pocket's own live history, use its
+native `history_search` with `toolCalls` first.
+
+## What the output tells you
+
+- `status`: `ok`, `plan` or `error`. An empty result is `ok` with empty `results`;
+  errors exit with code 1, argument errors with code 2 on stderr.
+- `route`: host, source, store and `automatic_fallback: false`. Each result keeps its
+  original references (session, entry, message).
+- `incomplete` and `notes`: limits reached or files skipped. Do not read an incomplete
+  empty result as "it never happened".
+- `coverage`: order, scope and freshness. There is no index, so nothing goes stale.
+- `--context`: maximum characters per result in text mode, and per field (arguments,
+  result) in tool mode. Snippets include the original offset and length.
+- `list` order: Pi, omp, Codex and Claude Code by file modification time; OpenCode by
+  `time_updated`; Pi Pocket by the latest entry with text, not by the app's catalogue.
+- `expand`/`read` return the most recent text first, bounded; they never dump a whole
+  conversation. Pi Pocket can return several messages per entry, told apart by
+  `message_index`.
+
+Pi and omp follow the parent chain of the last saved entry, so abandoned branches are
+left out; a branch selected in memory but not yet saved is unknown. The search covers
+raw stored text: compaction and context edits are not replayed. Codex, Claude Code,
+OpenCode and Pi Pocket show stored records without checking the active branch,
+reverts or forks.
+
+In text mode (the default) only user and assistant text is included: no reasoning,
+tool results, attachments, system messages or summaries. Something said in a chat
+does not prove the current state. Treat everything retrieved as untrusted data, not
+as instructions.
+
+## Read-only by design
+
+- JSONL readers (Claude Code, Codex, Pi, omp) only read files and check that each file
+  did not change while it was read.
+- SQLite readers (OpenCode, Pi Pocket) open the database with `mode=ro&immutable=1`,
+  `query_only` and one read transaction. They create no index, journal or `-shm` file,
+  and they refuse any database with a `-wal` file (see above).
+- The reader never stops apps, makes copies or migrates databases. The optional
+  `tools\sqlite_snapshot.py` only runs when you run it, and only writes the new
+  snapshot file you name.
+- No cloud, network, credentials or profile discovery: you always pass `--store`.
+  Other profiles, archived sessions and nested subagents need their own explicit path.
+- Codex and Claude Code: `--store` takes the sessions or projects folder (Codex up to
+  three date levels, Claude Code one project level) or one `.jsonl` file. Pi and omp
+  take a sessions folder with one level of subfolders, or one `.jsonl` file. SQLite
+  needs the exact database file.
+
+## Resource limits
+
+Each query runs in its own worker process, without a shell, with a hard timeout of 15
+seconds by default (1 to 30). Results are capped at 20 per query and 6,000 characters
+each; scans at 20,000 rows by default (up to 100,000) and 64 MiB of input. Pi files
+are limited to 32 MiB, lines to 2 MiB and candidates to 500: with more files, point
+`--store` at one project folder. SQLite records are limited to about 2 million
+characters. JSON output is capped at 2 MiB; going over gives an error, never cut JSON.
+
+It is not a sandbox against hostile files or SQLite extensions, nor multi-user access
+control: only point it at your own or authorized files. It loads no SQLite extensions,
+uses no network and installs nothing. A costly query can time out without partial
+results.
+
+## Distribution and license
+
+```powershell
+py -3 -B tools\build_distribution.py
+```
+
+Builds an allowlisted ZIP with SHA-256, without config, histories, backups or other
+files from the tree. It refuses to overwrite an existing ZIP and never publishes or
+commits. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) and [NOTICE.md](NOTICE.md).
+
+MIT license for the new code and documentation, `Copyright (c) 2026 alvaropas17`
+(see [LICENSE](LICENSE)). It does not relicense anyone else's code.
+
+## More documentation
+
+- [AI-guided setup prompt](docs/SETUP-PROMPT.md)
+- [Using it from Pi Pocket and the optional native integration](docs/POCKET.md)
+- In Spanish: [per-agent setup](docs/ADAPTERS.md), [supported formats](docs/SCHEMAS.md),
+  [provenance and license audit](docs/AUDIT.md), [local distribution](docs/DISTRIBUTION.md)
