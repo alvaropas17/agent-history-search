@@ -1,10 +1,10 @@
 ---
 name: agent-history-search
-description: "Trigger: historial, conversaciones anteriores, busca en chats. Consulta Pi, oc2 o Pocket con fuente explícita y lectores locales sin escrituras."
+description: "Trigger: historial, conversaciones anteriores, busca en chats. Busca, lista y lee sesiones de Pi, omp, oc2, Pocket, Codex y Claude Code con fuente explícita y lectores locales sin escrituras."
 license: MIT
 metadata:
   author: "Agent History Search contributors"
-  version: "0.2.1"
+  version: "0.2.2"
 ---
 
 ## Activation Contract
@@ -21,7 +21,8 @@ Carga al buscar, listar o ampliar conversaciones guardadas. Lee [uso local](refe
 
 ## Decision Gates
 
-- Pi: JSONL v2/v3 y cadena de padres de la hoja persistida.
+- Pi/omp: JSONL v2/v3 y cadena de padres de la hoja persistida.
+- Codex/Claude Code: JSONL, solo texto user/assistant; sin verificación de rama activa. Usa un archivo concreto para leer una sesión seleccionada.
 - oc2/Pocket: snapshot SQLite coherente sin WAL; si hay WAL, para. No lo borres.
 - Esquema desconocido: informa el límite; no cambies a otra fuente.
 

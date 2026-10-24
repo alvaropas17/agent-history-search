@@ -28,7 +28,7 @@ class Distribution(unittest.TestCase):
                 self.assertEqual(set(names), expected)
                 self.assertFalse(any('backup' in name or '.db' in name or '.sqlite' in name or '.jsonl' in name for name in names))
                 manifest = json.loads(archive.read(prefix + 'MANIFEST.json'))
-                self.assertEqual(manifest['version'], '0.2.1')
+                self.assertEqual(manifest['version'], '0.2.2')
                 self.assertEqual(manifest['license'], 'MIT')
                 self.assertEqual(manifest['license_state'], 'MIT approved')
                 self.assertEqual(manifest['copyright'], 'Copyright (c) 2026 alvaropas17')

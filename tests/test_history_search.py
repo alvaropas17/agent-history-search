@@ -62,7 +62,19 @@ class Fixtures(unittest.TestCase):
         con.close()
 
     def run_read(self, source, action='search', **kwargs):
-        store = {'pi': self.pi, 'opencode': self.oc2, 'pocket': self.pocket}[source]
+        if source in ('codex', 'claude'):
+            store = self.root / (source + '.jsonl')
+            if source == 'codex':
+                records = [
+                    {'type': 'session_meta', 'payload': {'id': 'cx'}},
+                    {'type': 'response_item', 'timestamp': STAMP, 'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': 'codex question'}]}},
+                ]
+            else:
+                records = [{'type': 'user', 'sessionId': 'cl', 'uuid': 'u', 'timestamp': STAMP,
+                            'message': {'role': 'user', 'content': 'claude question'}}]
+            store.write_text('\n'.join(json.dumps(r) for r in records) + '\n', encoding='utf-8')
+        else:
+            store = {'pi': self.pi, 'omp': self.pi, 'opencode': self.oc2, 'pocket': self.pocket}[source]
         argv = [action, '--host', source, '--store', str(store)]
         if action == 'search':
             kwargs.setdefault('query', 'question')

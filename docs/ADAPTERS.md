@@ -14,7 +14,7 @@ Según la documentación instalada consultada, carga skills desde ~/.pi/agent/sk
 
 Tras una configuración autorizada, usa /reload en Pi y comprueba que la skill se descubre con /skill:agent-history-search. La forma exacta debe verificarse en la versión instalada antes de automatizarla. La skill invocará la CLI por las herramientas normales del agente. No registra history_search como herramienta nativa.
 
-Store habitual de Pi: ~/.pi/agent/sessions. Es una sugerencia de formato, no selección automática. Si el agentDir está personalizado, usa ese directorio de sesiones. No mezcles sesiones de omp: ese backend no forma parte del paquete.
+Store habitual de Pi: ~/.pi/agent/sessions. Es una sugerencia de formato, no selección automática. Si el agentDir está personalizado, usa ese directorio de sesiones. Para omp, selecciona explícitamente `--host omp` y su propio directorio de sesiones; el lector acepta el mismo formato JSONL v2/v3. No mezcles almacenes.
 
 ## OpenCode oc2
 
@@ -41,6 +41,22 @@ En un Pocket que ya ofrece history_search, utiliza esa herramienta primero. Esta
 Para uso offline independiente, selecciona un snapshot de la instancia autorizada, no la base de otra persona. PI_POCKET_DIR puede cambiar dónde está la instancia; esta CLI no lee esa variable para adivinarla. La herramienta nativa conoce su instancia y sigue siendo preferible para trabajo en vivo.
 
 Exportación oficial para una persona: Menu → Export as Markdown o /export. No se automatiza acceso autenticado ni se parsea esa exportación fingiendo equivalencia de IDs. No se afirma que exista una API oficial de búsqueda portable.
+
+## Codex y Claude Code
+
+Ambos usan la misma CLI, sin plugin ni herramienta nativa. Expón la carpeta
+`skill/` como `agent-history-search` mediante el mecanismo de skills que admita
+la versión instalada. En la máquina de referencia existen `~/.codex/skills` y
+`~/.claude/skills`; verifica descubrimiento en una sesión nueva, no presupongas
+que todas las versiones cargan esas rutas.
+
+Codex: `--host codex --store /ruta/.codex/sessions`. Claude Code:
+`--host claude --store /ruta/.claude/projects`. Para listar usa `list`; para buscar,
+`search --query "tema"`; para leer, `read --session ID-EXACTO --store ARCHIVO-JSONL`.
+Usa la ruta devuelta por listado para evitar escanear todo el perfil. Los archivos
+archivados, perfiles adicionales y subagentes anidados requieren rutas explícitas.
+Solo se leen mensajes user/assistant, sin herramientas ni razonamiento; no se
+verifica rama activa ni selección en memoria. No se consulta ningún servicio cloud.
 
 ## Verificación sin datos personales
 

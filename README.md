@@ -1,8 +1,25 @@
 # Agent History Search
 
-Paquete Python autónomo para consultar historiales locales de **Pi terminal**, **OpenCode oc2** y **Pi Pocket**. No depende de otros scripts, servicios, paquetes pip, credenciales ni rutas de una máquina concreta.
+Paquete Python autónomo para consultar historiales locales de **Pi terminal**, **omp**, **OpenCode oc2**, **Pi Pocket**, **Codex** y **Claude Code**. No depende de otros scripts, servicios, paquetes pip, credenciales ni rutas de una máquina concreta.
 
-Incluye búsqueda literal Unicode, listado reciente y ampliación por identificadores exactos. Entrega JSON trazable y límites de cobertura. Es una **CLI con skill opcional**, no una herramienta nativa en los tres productos.
+Incluye búsqueda literal Unicode, listado reciente y lectura por identificadores exactos (`read` o `expand`). Entrega JSON trazable y límites de cobertura. Es una **CLI con skill opcional**, no una herramienta nativa en los tres productos.
+
+## Ampliación local: Codex, Claude Code y omp
+
+La CLI admite `--host codex`, `--host claude` y `--host omp`, con las mismas
+operaciones `search`, `list` y `expand`. `read` es alias de `expand` y exige sesión
+exacta. Selecciona siempre `--store`: Codex acepta `~/.codex/sessions` (hasta tres
+niveles de fecha); Claude Code acepta `~/.claude/projects` (un nivel de proyecto);
+omp acepta su directorio de sesiones compatible con Pi. Un archivo JSONL concreto
+reduce el alcance. Archivos archivados y subagentes anidados requieren otra ruta
+explícita. No se consulta la nube ni se descubren perfiles.
+
+Codex lee `response_item.message` con bloques `input_text`/`output_text`; Claude
+lee registros `user`/`assistant` con bloques de texto. Excluye herramientas,
+razonamiento, instrucciones internas y eventos duplicados. Ordena archivos por
+mtime y mensajes por orden persistido inverso. No verifica ramas activas,
+compactaciones ni reverts de estos formatos. Los límites de recursos y las
+comprobaciones de cambios durante lectura siguen aplicándose.
 
 ## Inicio rápido
 

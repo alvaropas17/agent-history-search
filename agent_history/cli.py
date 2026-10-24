@@ -9,12 +9,12 @@ import sys
 
 from .core import Budget, HistoryError
 
-SOURCES = ('pi', 'opencode', 'pocket')
+SOURCES = ('pi', 'omp', 'opencode', 'pocket', 'codex', 'claude')
 
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=('search', 'list', 'expand'))
+    p.add_argument('action', choices=('search', 'list', 'expand', 'read'))
     p.add_argument('--host', required=True, choices=SOURCES)
     p.add_argument('--source', choices=SOURCES)
     p.add_argument('--reason', default='')
@@ -35,6 +35,8 @@ def parser():
 
 
 def plan(a):
+    if a.action == 'read':
+        a.action = 'expand'
     source = a.source or a.host
     if source != a.host and not a.reason.strip():
         raise HistoryError('source_change_requires_explicit_user_request_reason')
@@ -66,8 +68,10 @@ def plan(a):
 def read(a, route):
     budget = Budget(seconds=max(0.1, a.timeout - 0.5), rows=a.max_rows)
     source, store = route['source'], route['store']
-    if source == 'pi':
+    if source in ('pi', 'omp'):
         from .pi import run
+    elif source in ('codex', 'claude'):
+        from .transcripts import run
     else:
         from .sqlite_readers import opencode, pocket
         run = opencode if source == 'opencode' else pocket
