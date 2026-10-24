@@ -30,8 +30,8 @@ class Distribution(unittest.TestCase):
                               'skill/SKILL.md', 'skill/references/usage.md'):
                     self.assertIn(prefix + guide, names)
                 pocket_guide = archive.read(prefix + 'docs/POCKET.md').decode('utf-8')
-                self.assertIn('helper externo', pocket_guide)
-                self.assertIn('no incluye una extensión nativa', pocket_guide)
+                self.assertIn('external helper', pocket_guide)
+                self.assertIn('does not include a ready-to-install native Pocket extension', pocket_guide)
                 self.assertFalse(any('backup' in name or '.db' in name or '.sqlite' in name or '.jsonl' in name for name in names))
                 manifest = json.loads(archive.read(prefix + 'MANIFEST.json'))
                 self.assertEqual(manifest['version'], '0.2.2')
