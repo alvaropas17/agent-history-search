@@ -2,6 +2,7 @@
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
+import re
 import sqlite3
 import time
 
@@ -105,6 +106,105 @@ def emit_message(args, budget, reference, role, stamp, body):
     if part is None:
         return None
     return {**reference, 'role': role, 'timestamp': stamp, **part}
+
+
+TOOL_SCOPE = ('stored tool calls and text results paired by call ID, never by proximity; '
+              'images omitted; a stored result is not proof of current state')
+EXIT_LINE = re.compile(r'^(?:Exit code|Process exited with code):? (-?\d+)\s*$', re.M)
+
+
+def tool_text(content):
+    """Text of a stored tool result; images and other non-text blocks are never returned."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ''
+    return '\n'.join(x['text'] for x in content if isinstance(x, dict)
+                     and x.get('type') in ('text', 'input_text', 'output_text')
+                     and isinstance(x.get('text'), str))
+
+
+def arguments_text(value):
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return ''
+
+
+def exit_code_failure(code, label):
+    if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+        return '%s=%d' % (label, code)
+    return None
+
+
+def output_failure(text):
+    """Codex stores exit codes inside the output text; the word "error" alone is not a failure."""
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        data = None
+    if isinstance(data, dict):
+        meta = data.get('metadata') if isinstance(data.get('metadata'), dict) else data
+        return exit_code_failure(meta.get('exit_code'), 'exit_code')
+    match = EXIT_LINE.search(text[:4000])
+    return exit_code_failure(int(match.group(1)), 'exit_code') if match else None
+
+
+def join_tools(events):
+    """Pair ('call'|'result', call_id, fields) events by call ID in stored order."""
+    attempts, by_id = [], {}
+    for kind, call_id, fields in events:
+        call_id = call_id if isinstance(call_id, str) and call_id else None
+        found = by_id.get(call_id)
+        if kind == 'call':
+            if found is not None and 'arguments' not in found:
+                found.pop('missing', None)
+                found.update({k: v for k, v in fields.items() if k != 'tool' or not found.get('tool')})
+                continue
+            item = {'call_id': call_id, **fields}
+        else:
+            if found is not None and 'result' not in found:
+                found.update({k: v for k, v in fields.items() if k != 'tool' or not found.get('tool')})
+                continue
+            item = {'call_id': call_id, 'missing': 'call_block_missing', **fields}
+        attempts.append(item)
+        if call_id:
+            by_id[call_id] = item
+    return attempts
+
+
+def emit_tool(args, base, item):
+    failure = item.get('failure')
+    state = 'no_result_stored' if 'result' not in item else 'failure' if failure else 'no_failure_recorded'
+    if args.state == 'failure' and state != 'failure':
+        return None
+    if args.tool and item.get('tool') != args.tool:
+        return None
+    stamp = item.get('timestamp') or item.get('result_timestamp')
+    if not in_dates(stamp, args):
+        return None
+    refs = [item.get('ref') or {}, item.get('result_ref') or {}]
+    if args.entry and not any(args.entry == str(r.get('entry_id', r.get('message_id'))) for r in refs):
+        return None
+    query = args.query if args.action == 'search' else ''
+    found, fields = not query, {}
+    for name in ('arguments', 'result'):
+        text = item.get(name)
+        if not isinstance(text, str):
+            continue
+        part = snippet(text, query, args.context) if query else None
+        found = found or part is not None
+        fields[name] = part or snippet(text, '', args.context)
+    if not found:
+        return None
+    hit = {**base, 'kind': 'tool_attempt', 'call_id': item['call_id'], 'tool': item.get('tool'),
+           'timestamp': stamp, 'state': state, 'evidence': failure, **fields}
+    for key in ('ref', 'result_ref', 'missing'):
+        if item.get(key):
+            hit[key] = item[key]
+    return hit
 
 
 def connect(path, required, budget):

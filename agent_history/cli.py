@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 
-from .core import Budget, HistoryError
+from .core import TOOL_SCOPE, Budget, HistoryError
 
 SOURCES = ('pi', 'omp', 'opencode', 'pocket', 'codex', 'claude')
 
@@ -21,14 +21,19 @@ def parser():
     p.add_argument('--store', type=Path, required=True,
                    help='Pi sessions directory or one JSONL; oc2/Pocket exact SQLite path')
     p.add_argument('--query', default='')
-    p.add_argument('--session', help='Exact Pi/oc2 session ID or Pocket conversation ID')
-    p.add_argument('--entry', help='Exact Pi entry ID, oc2 message ID or Pocket entry ID')
+    p.add_argument('--session', help='Exact session ID (Pocket: conversation ID)')
+    p.add_argument('--entry', help='Exact entry/message ID; with --tool-calls it may name the call or its result')
     p.add_argument('--since', type=date.fromisoformat, help='Inclusive UTC day')
     p.add_argument('--until', type=date.fromisoformat, help='Inclusive UTC day')
     p.add_argument('--limit', type=int, default=5)
     p.add_argument('--context', type=int, default=400, help='Maximum text characters per match')
     p.add_argument('--timeout', type=int, default=15, help='Outer worker deadline, 1..30 seconds')
     p.add_argument('--max-rows', type=int, default=20000, help='Maximum decoded input rows, 1..100000')
+    p.add_argument('--tool-calls', action='store_true',
+                   help='Search/read stored tool calls and their results instead of user/assistant text')
+    p.add_argument('--tool', help='Exact tool name (requires --tool-calls)')
+    p.add_argument('--state', choices=('any', 'failure'), default='any',
+                   help='failure: only results with recorded error evidence (requires --tool-calls)')
     p.add_argument('--plan', action='store_true', help='Validate and print route without opening a store')
     p.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     return p
@@ -46,7 +51,13 @@ def plan(a):
         raise HistoryError('invalid_timeout_or_scan_limit')
     if len(a.query) > 2000 or len(a.reason) > 1000:
         raise HistoryError('query_or_reason_too_long')
-    if a.action == 'search' and not a.query.strip():
+    if (a.tool or a.state != 'any') and not a.tool_calls:
+        raise HistoryError('tool_filters_require_tool_calls')
+    if a.tool_calls and a.action == 'list':
+        raise HistoryError('tool_calls_not_valid_for_list')
+    if a.tool is not None and not 0 < len(a.tool) <= 200:
+        raise HistoryError('invalid_tool_name')
+    if a.action == 'search' and not a.query.strip() and not a.tool_calls:
         raise HistoryError('search_requires_query')
     if a.action != 'search' and a.query:
         raise HistoryError('query_is_search_only')
@@ -62,7 +73,8 @@ def plan(a):
                                       or int(value) > 9223372036854775807):
                 raise HistoryError('pocket_ids_require_positive_sqlite_integers')
     return {'host': a.host, 'source': source, 'reason': a.reason,
-            'store': str(a.store.expanduser().absolute()), 'automatic_fallback': False}
+            'store': str(a.store.expanduser().absolute()), 'automatic_fallback': False,
+            'mode': 'tool_calls' if a.tool_calls else 'text'}
 
 
 def read(a, route):
@@ -76,6 +88,8 @@ def read(a, route):
         from .sqlite_readers import opencode, pocket
         run = opencode if source == 'opencode' else pocket
     results, coverage = run(a, store, budget)
+    if a.tool_calls:
+        coverage['scope'] = TOOL_SCOPE
     return {'schema_version': 1, 'status': 'ok', 'route': route,
             'observed_at': datetime.now(timezone.utc).isoformat(),
             'action': a.action, 'results': results,

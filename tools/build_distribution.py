@@ -15,6 +15,7 @@ FILES = (
     'agent_history/pi.py',
     'agent_history/transcripts.py',
     'tests/test_transcripts.py',
+    'tests/test_tool_calls.py',
     'agent_history/sqlite_readers.py',
     'README.md',
     'NOTICE.md',
@@ -45,7 +46,7 @@ def build(output, root=ROOT):
             raise ValueError('Missing or symlinked distribution source: ' + name)
         payloads[name] = path.read_bytes()
     manifest = {
-        'name': 'agent-history-search', 'version': '0.2.2',
+        'name': 'agent-history-search', 'version': '0.3.0',
         'license_state': 'MIT approved',
         'license': 'MIT',
         'copyright': 'Copyright (c) 2026 alvaropas17',
@@ -68,7 +69,7 @@ def build(output, root=ROOT):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ROOT / 'dist' / 'agent-history-search-0.2.2.zip')
+    parser.add_argument('--output', type=Path, default=ROOT / 'dist' / 'agent-history-search-0.3.0.zip')
     args = parser.parse_args()
     print(json.dumps(build(args.output)))
 

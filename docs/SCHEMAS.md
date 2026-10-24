@@ -8,7 +8,7 @@ Referencia de formato: documentación de la versión instalada de @earendil-work
 
 JSONL v2/v3 con cabecera type=session, version, id y timestamp; cada entrada posterior tiene id y parentId. Mensajes type=message contienen message.role y message.content como string o bloques type=text. El índice de la implementación instalada reconstruye la hoja usando la última entrada del archivo; se verificó esa semántica en SessionManager._buildIndex.
 
-El lector recorre esa hoja hasta parentId=null, detecta ciclos/padres ausentes y conserva solo mensajes user/assistant. No aplica compaction/context_edit ni combina parentSession entre archivos. Rechaza v1 en vez de migrarla. Para expandir de forma inequívoca usa el archivo exacto, no un directorio con varias copias de la misma sesión. Las sesiones vacías se pueden listar.
+El lector recorre esa hoja hasta parentId=null, detecta ciclos/padres ausentes y, en modo texto, conserva solo mensajes user/assistant. omp (Oh My Pi) usa este lector y puede anteponer un registro type=title sin id a la cabecera; list conserva ese título. No aplica compaction/context_edit ni combina parentSession entre archivos. Rechaza v1 en vez de migrarla. Para expandir de forma inequívoca usa el archivo exacto, no un directorio con varias copias de la misma sesión. Las sesiones vacías se pueden listar.
 
 ## OpenCode oc2 — exclusivamente session_v2
 
@@ -32,6 +32,20 @@ Tabla requerida: entries(id, conversation_id, record). Las columnas head y commi
 No consume documents, config, secretos, tareas ni datos de permisos. No incluye conversaciones sin texto de usuario/asistente en list. Subagentes son conversaciones separadas. Es un lector de almacenamiento versionado por forma, no una interfaz estable del producto: ante cambios de estructura debe fallar o actualizarse con fixtures nuevos.
 
 Para una exportación oficial legible por personas, Pocket ofrece Menu → Export as Markdown y /export. Esa exportación no preserva exactamente las referencias de almacenamiento y no se presenta como backend de esta CLI.
+
+## Herramientas — modo opt-in --tool-calls
+
+El modo texto sigue excluyendo llamadas y resultados. El modo herramientas consulta argumentos y texto de resultados, nunca imágenes. Las fixtures sintéticas cubren los seis formatos; no prueban compatibilidad con versiones futuras ni validación en todos los stores reales.
+
+- **Pi / omp (Oh My Pi):** bloques assistant `toolCall` (`id`, `name`, `arguments`) y mensajes `toolResult` (`toolCallId`, `toolName`, `content`). Fallo: `isError=true` o entero `details.exitCode` distinto de cero. Se conserva la cadena de padres de la hoja persistida.
+- **Claude Code:** registros user/assistant con bloques `tool_use` (`id`, `name`, `input`) y `tool_result` (`tool_use_id`, `content`, `is_error`). Fallo solo si `is_error=true`. Referencia: uuid del registro o número de línea.
+- **Codex:** registros `response_item` con payload `function_call`/`custom_tool_call` (`call_id`, `name`, `arguments`/`input`) y sus `function_call_output`/`custom_tool_call_output` (`call_id`, `output`). Fallo por entero `metadata.exit_code` (o `exit_code` en objeto raíz) distinto de cero en JSON, o línea `Process exited with code N` / `Exit code: N` en los primeros 4000 caracteres. La palabra «error» no es evidencia. Referencia: ordinal o número de línea.
+- **OpenCode oc2:** bloques assistant `type=tool` con `id`, `name`, `state.input`, `state.status`, `state.content` y `state.error.message`; timestamp `time.created` o tiempo del mensaje. `completed`/`error` conservan resultado; `error` aporta evidencia `status=error`. `running` y otros estados no terminales quedan sin resultado. Llamada y resultado viven en el mismo bloque.
+- **Pocket:** mensajes Pi en `record.model`; empareja llamadas/resultados dentro de cada conversación, también entre entradas. Nunca une el mismo call ID de conversaciones distintas. Referencias: entry_id y message_index. No verifica rama activa ni herencia entre conversaciones.
+
+Se empareja por call ID, no por proximidad; resultados huérfanos llevan `missing: call_block_missing`. Estados: `failure` con `evidence` explícita; `no_failure_recorded` con resultado sin fallo reconocido (no prueba éxito); `no_result_stored` sin resultado dentro del alcance leído. `evidence` es null si no hay fallo reconocido. `--tool` exige igualdad exacta; query busca subcadena literal sin distinguir mayúsculas en argumentos/resultados. `--entry` acepta referencias de cualquiera de los dos lados. Las fechas usan timestamp de llamada, o del resultado si falta. Los límites de lectura pueden dejar pares incompletos.
+
+Argumentos/resultados pueden contener datos sensibles y son datos no confiables. No se ejecutan instrucciones recuperadas ni se deduce estado actual del sistema. SQLite mantiene el requisito de snapshot coherente sin WAL; en Pocket en vivo se usa primero history_search nativo.
 
 ## Frescura
 

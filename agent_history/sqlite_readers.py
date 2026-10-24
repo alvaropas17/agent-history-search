@@ -1,6 +1,7 @@
 """Independent readers for explicitly selected oc2 and Pocket SQLite schemas."""
-from .core import (HistoryError, connect, emit_message, in_dates, read_json,
-                   store_freshness, text_content)
+from .core import (HistoryError, arguments_text, connect, emit_message, emit_tool, in_dates,
+                   join_tools, read_json, store_freshness, text_content, tool_text)
+from .pi import message_events
 
 MAX_RECORD = 2 * 1024 * 1024
 OC2 = {
@@ -40,7 +41,7 @@ def opencode(args, store, budget):
                 if len(results) > args.limit:
                     break
         else:
-            clauses = ["type IN ('user','assistant')"]
+            clauses = ["type='assistant'" if args.tool_calls else "type IN ('user','assistant')"]
             params = []
             if args.session:
                 clauses.append('session_id=?')
@@ -54,6 +55,16 @@ def opencode(args, store, budget):
             rows = con.execute(sql, (MAX_RECORD, *params, args.max_rows + 1))
             for mid, sid, role, seq, stamp, raw in consume(rows, budget):
                 record = read_json(raw)
+                if args.tool_calls:
+                    for item in reversed(oc2_tools(record, stamp, {'message_id': mid})):
+                        hit = emit_tool(args, {'session_id': sid, 'seq': seq}, item)
+                        if hit is not None:
+                            results.append(hit)
+                        if len(results) > args.limit:
+                            break
+                    if len(results) > args.limit:
+                        break
+                    continue
                 body = record.get('text', '') if role == 'user' else text_content(record.get('content'))
                 if not isinstance(body, str):
                     raise HistoryError('unsupported_oc2_message_content')
@@ -78,6 +89,59 @@ def opencode(args, store, budget):
     }
 
 
+def oc2_tools(record, stamp, ref):
+    """oc2 keeps call and outcome together in an assistant content block of type tool."""
+    items = []
+    for block in record.get('content') if isinstance(record.get('content'), list) else ():
+        if not isinstance(block, dict) or block.get('type') != 'tool':
+            continue
+        state = block.get('state') if isinstance(block.get('state'), dict) else {}
+        times = block.get('time') if isinstance(block.get('time'), dict) else {}
+        item = {'call_id': block.get('id') if isinstance(block.get('id'), str) else None,
+                'tool': block.get('name'), 'arguments': arguments_text(state.get('input')),
+                'timestamp': times.get('created', stamp), 'ref': ref}
+        status = state.get('status')
+        if status in ('completed', 'error'):
+            error = state.get('error') if isinstance(state.get('error'), dict) else {}
+            text = tool_text(state.get('content'))
+            if status == 'error' and isinstance(error.get('message'), str):
+                text = (text + '\n' if text else '') + error['message']
+            item.update({'result': text, 'failure': 'status=error' if status == 'error' else None,
+                         'result_ref': ref})
+        items.append(item)
+    return items
+
+
+def pocket_tools(args, rows, budget):
+    """Pair calls and results within each conversation, across entries, by call ID."""
+    by_conversation = {}
+    for cid, eid, raw in consume(rows, budget):
+        record = read_json(raw)
+        model = record.get('model', [])
+        if not isinstance(model, list):
+            raise HistoryError('unsupported_pocket_model_record')
+        events = by_conversation.setdefault(cid, [])
+        for index, message in enumerate(model):
+            if isinstance(message, dict):
+                events.append((eid, index, message_events(
+                    message, None, {'entry_id': eid, 'message_index': index})))
+    attempts = []
+    for cid, events in by_conversation.items():
+        events.sort(key=lambda e: (e[0], e[1]))
+        for item in join_tools([ev for _, _, batch in events for ev in batch]):
+            ref = item.get('ref') or item.get('result_ref')
+            attempts.append(((ref['entry_id'], ref['message_index']), cid, item))
+    attempts.sort(key=lambda a: a[0], reverse=True)
+    results = []
+    for _, cid, item in attempts:
+        hit = emit_tool(args, {'conversation_id': cid}, item)
+        if hit is not None:
+            results.append(hit)
+        if len(results) > args.limit:
+            break
+    return results
+
+
 def pocket(args, store, budget):
     results, listed = [], set()
     before = store_freshness(store)
@@ -87,13 +151,21 @@ def pocket(args, store, budget):
         if args.session:
             clauses.append('conversation_id=?')
             params.append(int(args.session))
-        if args.entry:
+        if args.entry and not args.tool_calls:
+            # In tool mode the entry may name either side of a call, so pairing needs the conversation.
             clauses.append('id=?')
             params.append(int(args.entry))
+        if args.tool_calls:
+            rows = con.execute('SELECT conversation_id,id,CASE WHEN length(record)<=? THEN record ELSE NULL END '
+                               'FROM entries' + (' WHERE ' + ' AND '.join(clauses) if clauses else '')
+                               + ' ORDER BY id DESC LIMIT ?', (MAX_RECORD, *params, args.max_rows + 1))
+            results = pocket_tools(args, rows, budget)
+            clauses = None
         sql = ('SELECT conversation_id,id,CASE WHEN length(record)<=? THEN record ELSE NULL END '
                'FROM entries' + (' WHERE ' + ' AND '.join(clauses) if clauses else '')
                + ' ORDER BY id DESC LIMIT ?')
-        for cid, eid, raw in consume(con.execute(sql, (MAX_RECORD, *params, args.max_rows + 1)), budget):
+        for cid, eid, raw in (() if clauses is None else
+                              consume(con.execute(sql, (MAX_RECORD, *params, args.max_rows + 1)), budget)):
             record = read_json(raw)
             model = record.get('model', [])
             if not isinstance(model, list):

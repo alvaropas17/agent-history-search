@@ -27,14 +27,19 @@ class Distribution(unittest.TestCase):
                 expected = {prefix + name for name in builder.FILES} | {prefix + 'MANIFEST.json'}
                 self.assertEqual(set(names), expected)
                 for guide in ('docs/SETUP-PROMPT.md', 'docs/POCKET.md',
-                              'skill/SKILL.md', 'skill/references/usage.md'):
+                              'skill/SKILL.md', 'skill/references/usage.md',
+                              'tests/test_tool_calls.py'):
                     self.assertIn(prefix + guide, names)
                 pocket_guide = archive.read(prefix + 'docs/POCKET.md').decode('utf-8')
                 self.assertIn('external helper', pocket_guide)
                 self.assertIn('does not include a ready-to-install native Pocket extension', pocket_guide)
                 self.assertFalse(any('backup' in name or '.db' in name or '.sqlite' in name or '.jsonl' in name for name in names))
                 manifest = json.loads(archive.read(prefix + 'MANIFEST.json'))
-                self.assertEqual(manifest['version'], '0.2.2')
+                self.assertEqual(manifest['version'], '0.3.0')
+                from agent_history import __version__
+                self.assertEqual(manifest['version'], __version__)
+                self.assertIn('version: "' + __version__ + '"',
+                              archive.read(prefix + 'skill/SKILL.md').decode('utf-8'))
                 self.assertEqual(manifest['license'], 'MIT')
                 self.assertEqual(manifest['license_state'], 'MIT approved')
                 self.assertEqual(manifest['copyright'], 'Copyright (c) 2026 alvaropas17')

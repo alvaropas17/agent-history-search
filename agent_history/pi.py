@@ -1,7 +1,8 @@
 """Independent Pi v2/v3 JSONL reader: persisted leaf -> parentId chain."""
 from pathlib import Path
 
-from .core import HistoryError, emit_message, in_dates, read_json, signature
+from .core import (HistoryError, arguments_text, emit_message, emit_tool, exit_code_failure,
+                   in_dates, join_tools, read_json, signature, text_content, tool_text)
 
 MAX_FILE = 32 * 1024 * 1024
 MAX_LINE = 2 * 1024 * 1024
@@ -35,9 +36,13 @@ def load(path, budget):
     if signature(path) != before:
         budget.note('pi_file_changed_during_read')
         return None
+    title = None
+    if records and records[0].get('type') == 'title' and 'id' not in records[0]:
+        # omp writes one title record before the Pi session header.
+        title = records.pop(0).get('title')
     if not records or records[0].get('type') != 'session':
         raise HistoryError('unsupported_pi_header')
-    header = records[0]
+    header = {**records[0], 'title': title if isinstance(title, str) else None}
     if header.get('version') not in (2, 3) or not isinstance(header.get('id'), str):
         raise HistoryError('unsupported_pi_version')
     by_id = {}
@@ -57,6 +62,35 @@ def load(path, budget):
         chain.append(entry)
         leaf = entry['parentId']
     return header, chain, before
+
+
+def message_events(message, stamp, ref):
+    """Pi agent messages: assistant toolCall blocks and toolResult messages (Pi, omp, Pocket)."""
+    events = []
+    stamp = message.get('timestamp', stamp)
+    if message.get('role') == 'assistant' and isinstance(message.get('content'), list):
+        for block in message['content']:
+            if isinstance(block, dict) and block.get('type') == 'toolCall':
+                events.append(('call', block.get('id'), {
+                    'tool': block.get('name'), 'arguments': arguments_text(block.get('arguments')),
+                    'timestamp': stamp, 'ref': ref}))
+    elif message.get('role') == 'toolResult':
+        details = message.get('details') if isinstance(message.get('details'), dict) else {}
+        failure = ('isError' if message.get('isError') is True
+                   else exit_code_failure(details.get('exitCode'), 'details.exitCode'))
+        events.append(('result', message.get('toolCallId'), {
+            'tool': message.get('toolName'), 'result': tool_text(message.get('content')),
+            'failure': failure, 'result_timestamp': stamp, 'result_ref': ref}))
+    return events
+
+
+def tool_events(chain):
+    events = []
+    for entry in reversed(chain):
+        message = entry.get('message')
+        if entry.get('type') == 'message' and isinstance(message, dict):
+            events.extend(message_events(message, entry.get('timestamp'), {'entry_id': entry['id']}))
+    return events
 
 
 def paths(store, args, budget):
@@ -105,8 +139,18 @@ def run(args, store, budget):
         if args.action == 'list':
             stamp = chain[0].get('timestamp') if chain else header.get('timestamp')
             if in_dates(stamp, args):
-                results.append({**base, 'timestamp': stamp, 'cwd': header.get('cwd'),
-                                'leaf_id': chain[0]['id'] if chain else None})
+                listed = {**base, 'timestamp': stamp, 'cwd': header.get('cwd'),
+                          'leaf_id': chain[0]['id'] if chain else None}
+                if header['title']:
+                    listed['title'] = header['title'][:160]
+                results.append(listed)
+        elif args.tool_calls:
+            for item in reversed(join_tools(tool_events(chain))):
+                hit = emit_tool(args, base, item)
+                if hit is not None:
+                    results.append(hit)
+                if len(results) > args.limit:
+                    break
         else:
             for entry in chain:
                 if args.entry and args.entry != entry['id']:
@@ -114,7 +158,6 @@ def run(args, store, budget):
                 message = entry.get('message')
                 if entry.get('type') != 'message' or not isinstance(message, dict):
                     continue
-                from .core import text_content
                 hit = emit_message(args, budget, {**base, 'entry_id': entry['id']},
                                    message.get('role'), message.get('timestamp', entry.get('timestamp')),
                                    text_content(message.get('content')))

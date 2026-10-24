@@ -1,7 +1,8 @@
 """Bounded Codex and Claude Code JSONL readers; no indexes or profile writes."""
 from pathlib import Path
 
-from .core import HistoryError, emit_message, in_dates, read_json, signature, text_content
+from .core import (HistoryError, arguments_text, emit_message, emit_tool, in_dates, join_tools,
+                   output_failure, read_json, signature, text_content, tool_text)
 
 MAX_FILE = 32 * 1024 * 1024
 MAX_LINE = 2 * 1024 * 1024
@@ -39,7 +40,7 @@ def load(file, source, budget):
     if before['bytes'] > MAX_FILE or before['bytes'] > budget.bytes_left:
         budget.note('transcript_file_exceeds_byte_budget')
         return None
-    sid, cwd, messages = None, None, []
+    sid, cwd, messages, events = None, None, [], []
     with file.open('rb') as stream:
         for number in range(1, 100002):
             raw = stream.readline(MAX_LINE + 1)
@@ -64,7 +65,21 @@ def load(file, source, budget):
                 if row.get('type') == 'session_meta':
                     sid = payload.get('id') or payload.get('session_id')
                     cwd = payload.get('cwd')
-                if row.get('type') != 'response_item' or payload.get('type') != 'message':
+                kind = payload.get('type')
+                ref = {'entry_id': str(row.get('ordinal', number))}
+                if row.get('type') == 'response_item' and kind in ('function_call', 'custom_tool_call'):
+                    events.append(('call', payload.get('call_id'), {
+                        'tool': payload.get('name'),
+                        'arguments': arguments_text(payload.get('arguments', payload.get('input'))),
+                        'timestamp': row.get('timestamp'), 'ref': ref}))
+                    continue
+                if row.get('type') == 'response_item' and kind in ('function_call_output', 'custom_tool_call_output'):
+                    text = tool_text(payload.get('output'))
+                    events.append(('result', payload.get('call_id'), {
+                        'result': text, 'failure': output_failure(text),
+                        'result_timestamp': row.get('timestamp'), 'result_ref': ref}))
+                    continue
+                if row.get('type') != 'response_item' or kind != 'message':
                     continue
                 role = payload.get('role')
                 # Codex uses input_text/output_text, not Pi's text blocks.
@@ -85,6 +100,18 @@ def load(file, source, budget):
                 role = payload.get('role')
                 body = text_content(payload.get('content'))
                 eid = row.get('uuid') or str(number)
+                for block in payload.get('content') if isinstance(payload.get('content'), list) else ():
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get('type') == 'tool_use':
+                        events.append(('call', block.get('id'), {
+                            'tool': block.get('name'), 'arguments': arguments_text(block.get('input')),
+                            'timestamp': row.get('timestamp'), 'ref': {'entry_id': eid}}))
+                    elif block.get('type') == 'tool_result':
+                        events.append(('result', block.get('tool_use_id'), {
+                            'result': tool_text(block.get('content')),
+                            'failure': 'is_error' if block.get('is_error') is True else None,
+                            'result_timestamp': row.get('timestamp'), 'result_ref': {'entry_id': eid}}))
             if role in ('user', 'assistant') and body:
                 messages.append((eid, role, row.get('timestamp'), body))
     if signature(file) != before:
@@ -92,7 +119,7 @@ def load(file, source, budget):
         return None
     if not isinstance(sid, str) or not sid:
         raise HistoryError('unsupported_transcript_schema')
-    return sid, cwd, messages, before
+    return sid, cwd, messages, events, before
 
 
 def run(args, store, budget):
@@ -104,7 +131,7 @@ def run(args, store, budget):
             if budget.rows_left <= 0 or budget.bytes_left <= 0:
                 break
             continue
-        sid, cwd, messages, fresh = loaded
+        sid, cwd, messages, events, fresh = loaded
         if args.session and args.session != sid:
             continue
         base = {'store': str(file.resolve()), 'session_id': sid,
@@ -114,6 +141,13 @@ def run(args, store, budget):
             if in_dates(stamp, args):
                 title = next((m[3][:160] for m in messages if m[1] == 'user'), '')
                 results.append({**base, 'timestamp': stamp, 'cwd': cwd, 'title': title})
+        elif args.tool_calls:
+            for item in reversed(join_tools(events)):
+                hit = emit_tool(args, base, item)
+                if hit is not None:
+                    results.append(hit)
+                if len(results) > args.limit:
+                    break
         else:
             for eid, role, stamp, body in reversed(messages):
                 if args.entry and args.entry != eid:
