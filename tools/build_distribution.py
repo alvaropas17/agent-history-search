@@ -33,6 +33,9 @@ FILES = (
     'tools/build_distribution.py',
     'tools/sqlite_snapshot.py',
     'tests/test_snapshot.py',
+    'tests/test_query_variants.py',
+    'tests/test_transcript_streaming.py',
+    'tools/verify_distribution.py',
 )
 
 

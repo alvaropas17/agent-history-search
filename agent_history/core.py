@@ -80,11 +80,28 @@ def in_dates(value, args):
     return day is not None and (not args.since or day >= args.since) and (not args.until or day <= args.until)
 
 
+def search_query(args):
+    """Keep the single-query contract; variants share one reader traversal."""
+    if args.action != 'search':
+        return ''
+    variants = getattr(args, 'query_variant', ())
+    return tuple(([args.query] if args.query else []) + list(variants)) if variants else args.query
+
+
 def snippet(body, query, context):
     """Return at most context chars; Unicode folding never changes source offsets."""
     # Search normalized text but map the folded location back to the original.
     folded = body.casefold()
-    pos = folded.find(query.casefold()) if query else 0
+    if isinstance(query, tuple):
+        for candidate in query:
+            pos = folded.find(candidate.casefold())
+            if pos >= 0:
+                query = candidate
+                break
+        else:
+            return None
+    else:
+        pos = folded.find(query.casefold()) if query else 0
     if pos < 0:
         return None
     if query and pos:
@@ -102,7 +119,7 @@ def snippet(body, query, context):
 def emit_message(args, budget, reference, role, stamp, body):
     if role not in ('user', 'assistant') or not body or not in_dates(stamp, args):
         return None
-    part = snippet(body, args.query if args.action == 'search' else '', args.context)
+    part = snippet(body, search_query(args), args.context)
     if part is None:
         return None
     return {**reference, 'role': role, 'timestamp': stamp, **part}
@@ -188,7 +205,7 @@ def emit_tool(args, base, item):
     refs = [item.get('ref') or {}, item.get('result_ref') or {}]
     if args.entry and not any(args.entry == str(r.get('entry_id', r.get('message_id'))) for r in refs):
         return None
-    query = args.query if args.action == 'search' else ''
+    query = search_query(args)
     found, fields = not query, {}
     for name in ('arguments', 'result'):
         text = item.get(name)

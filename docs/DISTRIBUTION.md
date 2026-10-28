@@ -1,31 +1,27 @@
-# Preparar una distribución local
+# Preparing a local distribution
 
-No hay dependencias Python externas ni instalación necesaria. El ZIP contiene una carpeta agent-history-search/ con la CLI, paquete, documentación, skill y pruebas. Descomprimir y ejecutar history_search.py basta.
+There are no external Python dependencies and nothing to install. The ZIP holds one folder, `agent-history-search/`, with the CLI, the package, documentation, the skill and the tests. Unzipping it and running `history_search.py` is enough.
 
-## Construcción
+## Building
 
 ~~~sh
 python -B tools/build_distribution.py
 ~~~
 
-El builder utiliza una lista cerrada de archivos; no empaqueta cualquier archivo que aparezca en el repositorio. Cada archivo debe existir y no ser symlink. Escribe en modo exclusivo en dist/agent-history-search-0.3.0.zip y su .sha256. Si ya existen, se detiene: no sobrescribe ni borra la versión previa. Para otro destino usa --output /ruta/nueva.zip. Los nombres incluidos son relativos, sin traversal. MANIFEST.json contiene ruta y SHA-256 por archivo.
+The builder uses a closed list of files; it does not pack whatever happens to be in the repository. Every listed file must exist and must not be a symlink. It writes `dist/agent-history-search-0.3.0.zip` and its `.sha256` in exclusive mode: if they already exist it stops and never overwrites or deletes the previous version. Use `--output /path/new.zip` for another destination. Names inside the archive are relative with no path traversal, and `MANIFEST.json` lists the SHA-256 of every file.
 
-No se ejecutan consultas de historial ni red durante el build. scaffold-backup-v1/ conserva la entrega anterior solo en la máquina de trabajo y nunca se distribuye. tools/inspect_schema.py y tools/snapshot_scaffold.py tampoco forman parte del ZIP. tools/sqlite_snapshot.py sí se incluye: el propietario lo ejecuta para copiar una base SQLite en vivo a un snapshot sin WAL. Las pruebas solo generan fixtures temporales sintéticos.
+`python -B tools/verify_distribution.py ZIP` checks an archive against its manifest and checksum.
 
-## Configuración por IA y Pocket
+The build runs no history queries and uses no network. `tools/inspect_schema.py` and `tools/snapshot_scaffold.py` are maintainer tools and are not in the ZIP. `tools/sqlite_snapshot.py` is included: the owner runs it to copy a live SQLite database into a snapshot without a `-wal` file. The tests only generate temporary synthetic fixtures.
 
-El ZIP incluye `docs/SETUP-PROMPT.md` para configurar el helper externo desde
-cualquier harness compatible, y `docs/POCKET.md` para usarlo desde Pocket o
-planificar después un envoltorio nativo opcional. No incluye historiales, rutas
-autorizadas de un usuario ni una extensión Pocket lista para activar. Las rutas y
-los permisos se acuerdan durante la configuración local. No requiere servicios.
+## AI-guided setup and Pocket
 
-## Antes de enviar a otra persona
+The ZIP includes `docs/SETUP-PROMPT.md`, to set the helper up from any compatible agent, and `docs/POCKET.md`, to use it from Pocket or plan an optional native wrapper later. It includes no histories, no one's authorised paths and no ready-to-enable Pocket extension. Paths and permissions are agreed during local setup. No service is required.
 
-1. Conservar LICENSE y su aviso Copyright (c) 2026 alvaropas17: MIT ya fue aprobada por el titular para el código y la documentación nuevos.
-2. Ejecutar tests en el SO y Python de destino.
-3. Revisar contenido del ZIP y su manifiesto; no añadir snapshots, config o resultados privados.
-4. Confirmar que no se pretende soportar esquemas distintos de los documentados.
-5. Distribuir solo con autorización. Este trabajo prepara artefactos locales; no publica ni crea repositorios remotos.
+## Before sending it to someone else
 
-El ZIP 0.2.1 incluye LICENSE con MIT aprobada y el manifiesto correspondiente. El borrador LICENSE-MIT.proposed.txt queda fuera de la lista de distribución, solo como histórico local. El ZIP 0.2.0 se conserva sin sobrescribir. Preparar esta distribución local no autoriza publicar un release ni hacer commit o push.
+1. Keep `LICENSE` with its `Copyright (c) 2026 alvaropas17` notice.
+2. Run the tests on the target OS and Python version.
+3. Review the ZIP contents and its manifest; never add snapshots, config or private results.
+4. Confirm that no schema other than the documented ones is expected to work.
+5. Publish only when you decide to. Building the ZIP does not publish a release or create a remote repository.

@@ -223,7 +223,7 @@ class Policy(unittest.TestCase):
     def test_source_change(self):
         with self.assertRaises(HistoryError):
             cli.plan(self.args('--source', 'pocket'))
-        self.assertEqual(cli.plan(self.args('--source', 'pocket', '--reason', 'Usuario pidió Pocket'))['source'], 'pocket')
+        self.assertEqual(cli.plan(self.args('--source', 'pocket', '--reason', 'User asked for Pocket'))['source'], 'pocket')
 
     def test_invalid_ranges(self):
         for option, value in [('limit', '0'), ('context', '6001'), ('timeout', '31'), ('max-rows', '0'), ('query', ' ')]:

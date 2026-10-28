@@ -29,6 +29,19 @@ from your own history.
 - **Be honest about gaps:** limits, skipped files and partial results are reported
   in `incomplete` and `notes`. An incomplete empty result is not proof of absence.
 
+## Cloud threads and the agent connector
+
+The Python CLI reads local histories only. When the current agent exposes
+`mcp__codex_app__list_threads` and `mcp__codex_app__read_thread`, the skill uses
+that connector for requested Codex and ChatGPT threads: list 40 titles and
+summaries, select exact IDs, then read selected threads in parallel with
+`turnLimit:10` and `maxOutputCharsPerItem:16000`. See
+[the connector route](skill/SKILL.md#connector-first-route-for-codex-and-chatgpt).
+Pocket does not currently expose this connector. Local Codex files are not
+ChatGPT cloud history. No connector, account, or authentication is installed by
+this package. Local listing remains a bounded transcript scan, not a cloud
+metadata index.
+
 ## Requirements
 
 - Windows 10 or 11 (the platform it is tested on).
@@ -103,7 +116,7 @@ check each step against this list.
    Check that the folder does not already exist before linking, keep a backup of any
    instructions file you edit, and check your agent version's documentation:
    skill folders can change between versions. More detail per agent is in
-   [docs/ADAPTERS.md](docs/ADAPTERS.md) (in Spanish).
+   [docs/ADAPTERS.md](docs/ADAPTERS.md).
 6. **Check it in a new session.** Ask: "Use Agent History Search to list my latest
    conversation and tell me its session ID." Make sure the agent actually runs the CLI.
 
@@ -254,6 +267,24 @@ are limited to 32 MiB, lines to 2 MiB and candidates to 500: with more files, po
 `--store` at one project folder. SQLite records are limited to about 2 million
 characters. JSON output is capped at 2 MiB; going over gives an error, never cut JSON.
 
+Codex and Claude Code text reads stream JSONL records without a whole-file size
+exclusion. They retain at most `limit + 1` matching snippets per file, not all
+messages or tool events. Exact `--session`/`--entry` expansion rescans the file;
+there is no indexed lookup. Matching uses decoded text, including JSON escapes,
+and literal Unicode case folding. Results remain newest stored message first
+within file modification order, not verified active-branch order.
+
+The 64 MiB scan budget, row budget and worker timeout still apply. An oversized
+record (over 2 MiB) is drained in bounded chunks and skipped; later records can
+still match if budget remains. Draining consumes scan bytes and row units.
+Skipped records, exhausted budgets and internal deadlines mark coverage incomplete.
+Partial hits describe only the scanned prefix, not necessarily the newest messages
+in the file. A malformed record or a changed file discards that file's hits.
+File freshness checks compare size and modification time; they are not a locked
+snapshot and cannot detect a rewrite that preserves both. Tool mode still collects
+bounded scan events for call-ID pairing; it does not use text mode's snippet queue.
+The outer worker timeout can still return an error without partial results.
+
 It is not a sandbox against hostile files or SQLite extensions, nor multi-user access
 control: only point it at your own or authorized files. It loads no SQLite extensions,
 uses no network and installs nothing. A costly query can time out without partial
@@ -276,5 +307,5 @@ MIT license for the new code and documentation, `Copyright (c) 2026 alvaropas17`
 
 - [AI-guided setup prompt](docs/SETUP-PROMPT.md)
 - [Using it from Pi Pocket and the optional native integration](docs/POCKET.md)
-- In Spanish: [per-agent setup](docs/ADAPTERS.md), [supported formats](docs/SCHEMAS.md),
+- [Per-agent setup](docs/ADAPTERS.md), [supported formats](docs/SCHEMAS.md),
   [provenance and license audit](docs/AUDIT.md), [local distribution](docs/DISTRIBUTION.md)

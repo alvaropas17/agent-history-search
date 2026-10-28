@@ -1,9 +1,7 @@
-# Licencia y distribución
+# License and distribution
 
-Implementación nueva e independiente; no incluye código vendorizado, datos privados ni lectores de las skills locales.
+A new, independent implementation: it includes no vendored code, no private data and no readers copied from other helpers.
 
-El titular ha autorizado aplicar la licencia MIT al código y la documentación nuevos de este paquete. El texto definitivo está en LICENSE, con Copyright (c) 2026 alvaropas17. No se incluye correo electrónico.
+The new code and documentation are released under the MIT license. The full text is in [LICENSE](LICENSE), with `Copyright (c) 2026 alvaropas17`. No email address is included. This does not relicense anyone else's code.
 
-LICENSE-MIT.proposed.txt se conserva únicamente como borrador histórico local, fuera de la lista de distribución. La versión 0.2.0 y su ZIP conservan su estado histórico; la versión 0.2.1 incorpora la licencia aprobada.
-
-La preparación de un ZIP local no implica publicación ni consentimiento para relicenciar código ajeno. Véase docs/AUDIT.md para el alcance real de la revisión de procedencia.
+Building a local ZIP does not publish anything. See [docs/AUDIT.md](docs/AUDIT.md) for the scope of the provenance review and [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) for how the ZIP is built.

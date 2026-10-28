@@ -1,67 +1,57 @@
-# Uso desde cada harness
+# Using it from each agent
 
-La integración distribuida es CLI + instrucciones/skill, no plugin, MCP ni tool nativa. No hay instalador automático. Antes de modificar configuración, lee la documentación de la versión destino y crea backups exclusivos. No se cambió ningún harness durante la preparación.
+The integration is a CLI plus instructions/skill: it is not a plugin, an MCP server or a native tool, and there is no automatic installer. Before changing any configuration, read the documentation of the version you target and make an exclusive backup of every file you edit.
 
-## Compartir una sola instalación
+## One shared installation
 
-Conserva el directorio del paquete en una ruta estable elegida por el propietario. Ejecuta su history_search.py por ruta absoluta. En la instalación de la skill deben vivir SKILL.md y su referencia local references/usage.md; no copies solo el Markdown dejando enlaces rotos. Esa referencia indica cómo localizar el paquete y seleccionar el store. Ajusta una instrucción local con la ruta absoluta aprobada, nunca con credenciales.
+Keep the package folder at a stable path of your choice and run its `history_search.py` by absolute path. The skill installation must keep `SKILL.md` together with its local reference `references/usage.md`; do not copy only the Markdown file and leave broken links. Record the absolute path in a local instruction (for example in `CLAUDE.md` or `AGENTS.md`), never credentials.
 
-El nombre de la carpeta que expongas debe ser agent-history-search, igual que el frontmatter. Usa un enlace al directorio skill/ del paquete con ese nombre, o registra esa ruta específica si el harness lo admite. No expongas toda una colección de skills ajenas para añadir una sola.
+The folder name you expose must be `agent-history-search`, the same as the frontmatter `name`. Link to the package's `skill/` directory under that name, or register that specific path if the agent allows it. Do not expose a whole collection of other skills just to add this one.
 
-## Pi terminal
+## Pi
 
-Según la documentación instalada consultada, carga skills desde ~/.pi/agent/skills/ y ~/.agents/skills/, además de las del proyecto sujeto a confianza. Puedes enlazar la carpeta skill/ del paquete como ~/.pi/agent/skills/agent-history-search. En Windows, una junction evita copiar; en Unix, symlink. Comprueba que el destino no exista antes. No alteres trust ni instrucciones globales completas.
+Pi loads skills from `~/.pi/agent/skills/` and `~/.agents/skills/`, plus project skills subject to trust. Link the package's `skill/` folder as `~/.pi/agent/skills/agent-history-search`. On Windows a junction avoids copying; on Unix use a symlink. Check that the destination does not already exist. Do not change trust settings or replace global instructions.
 
-Tras una configuración autorizada, usa /reload en Pi y comprueba que la skill se descubre con /skill:agent-history-search. La forma exacta debe verificarse en la versión instalada antes de automatizarla. La skill invocará la CLI por las herramientas normales del agente. No registra history_search como herramienta nativa.
+After setup, run `/reload` in Pi and check that the skill is discovered with `/skill:agent-history-search`. Verify the exact commands in your installed version before automating them. The skill runs the CLI through the agent's normal tools; it does not register `history_search` as a native tool.
 
-Store habitual de Pi: ~/.pi/agent/sessions. Es una sugerencia de formato, no selección automática. Si el agentDir está personalizado, usa ese directorio de sesiones. Para omp, selecciona explícitamente `--host omp` y su propio directorio de sesiones; el lector acepta el mismo formato JSONL v2/v3. No mezcles almacenes.
+Usual Pi store: `~/.pi/agent/sessions`. That is a format hint, not an automatic choice. If your agent directory is customised, use that sessions folder. For omp (Oh My Pi), pass `--host omp` and its own sessions folder; the reader accepts the same JSONL v2/v3 format. Never mix stores.
 
-## OpenCode oc2
+## OpenCode (oc2 / v2)
 
-El wiring local consultado documenta **oc2/v2**, no OpenCode v1: lee las carpetas skill/skills del configdir y rutas concretas del array skills de opencode.json. En la instalación de referencia ese configdir es ~/.config/opencode-v2. Esto es evidencia de esa instalación, no una promesa universal.
+The format this reader supports is the **oc2/v2** database, not OpenCode v1. In the reference installation, oc2 reads the `skill`/`skills` folders of its config directory and specific paths from the `skills` array in `opencode.json`. That is evidence from one installation, not a universal promise.
 
-Si la versión destino confirma el mismo contrato, añade únicamente la ruta estable de skill/ del paquete al array existente, conservando todos los demás valores. Fragmento orientativo, no reemplazo de archivo completo:
+If your version confirms the same contract, add only the stable path of the package's `skill/` folder to the existing array and keep every other value. This is an illustrative fragment, not a replacement for the whole file:
 
 ~~~json
 {
-  "skills": ["/ruta/estable/agent-history-search/skill"]
+  "skills": ["/stable/path/agent-history-search/skill"]
 }
 ~~~
 
-Si ese oc2 deriva el identificador del nombre de carpeta en vez del frontmatter, expón primero un enlace llamado agent-history-search y registra ese enlace. No copies este bloque encima de la configuración existente. Si no existe la clave, no fuerces un formato adivinado: consulta el esquema de esa versión. Tras aprobación, reinicia la sesión del harness y verifica descubrimiento. No hay integración nativa ni acceso nuevo a cuentas.
+If your oc2 derives the skill identifier from the folder name instead of the frontmatter, first expose a link named `agent-history-search` and register that link. Never paste this block over an existing configuration. If the key does not exist, do not force a guessed format: check the schema of your version. After approval, restart the session and check discovery. There is no native integration and no new account access.
 
-Store de referencia: ~/.local/share/opencode/opencode.db con session_v2 y session_message. Puede variar; --store siempre explícito. Solo snapshots SQLite coherentes sin WAL, no bases v1/session-message-part.
+Reference store: `~/.local/share/opencode/opencode.db` with the `session_v2` and `session_message` tables. It may vary, so always pass `--store` explicitly. Only consistent SQLite snapshots without a `-wal` file are read, and not v1 or session-message-part databases.
 
 ## Pi Pocket
 
-Pocket comparte con Pi los archivos de skills; docs/customizing.md indica que vuelve a leerlos en un plazo de unos 30 segundos y que las skills de proyecto requieren confianza. No hace falta editar Pocket, activar un drop-in ni reiniciar el servidor por añadir una skill.
+Pocket shares skill files with Pi. Its `docs/customizing.md` says it rereads them within about 30 seconds and that project skills need trust. Adding a skill does not require editing Pocket, enabling a drop-in or restarting the server.
 
-En un Pocket que ya ofrece history_search, utiliza esa herramienta primero. Esta CLI no debe reemplazarla por un error, timeout o resultado vacío. No se instala una segunda tool con ese nombre: en el checkout consultado el nombre está reservado.
+If your Pocket already offers a `history_search` tool, use that first. This CLI must not replace it after an error, a timeout or an empty result, and you should not install a second tool with that name: the name is reserved in the version checked.
 
-Para uso offline independiente, selecciona un snapshot de la instancia autorizada, no la base de otra persona. PI_POCKET_DIR puede cambiar dónde está la instancia; esta CLI no lee esa variable para adivinarla. La herramienta nativa conoce su instancia y sigue siendo preferible para trabajo en vivo.
+For independent offline use, pick a snapshot of the instance you are authorised to read, never someone else's database. `PI_POCKET_DIR` can change where the instance lives; this CLI does not read that variable to guess it. The native tool knows its instance and stays preferable for live work.
 
-Exportación oficial para una persona: Menu → Export as Markdown o /export. No se automatiza acceso autenticado ni se parsea esa exportación fingiendo equivalencia de IDs. No se afirma que exista una API oficial de búsqueda portable.
+For a human-readable export, Pocket offers Menu → Export as Markdown and `/export`. This package does not automate authenticated access and does not parse that export as if its IDs were equivalent. It makes no claim that an official portable search API exists.
 
-## Codex y Claude Code
+## Codex and Claude Code
 
-Ambos usan la misma CLI, sin plugin ni herramienta nativa. Expón la carpeta
-`skill/` como `agent-history-search` mediante el mecanismo de skills que admita
-la versión instalada. En la máquina de referencia existen `~/.codex/skills` y
-`~/.claude/skills`; verifica descubrimiento en una sesión nueva, no presupongas
-que todas las versiones cargan esas rutas.
+Both use the same CLI, with no plugin or native tool. Expose the `skill/` folder as `agent-history-search` through the skills mechanism your installed version supports. Common locations are `~/.codex/skills` and `~/.claude/skills`; check discovery in a new session instead of assuming every version loads those paths.
 
-Codex: `--host codex --store /ruta/.codex/sessions`. Claude Code:
-`--host claude --store /ruta/.claude/projects`. Para listar usa `list`; para buscar,
-`search --query "tema"`; para leer, `read --session ID-EXACTO --store ARCHIVO-JSONL`.
-Usa la ruta devuelta por listado para evitar escanear todo el perfil. Los archivos
-archivados, perfiles adicionales y subagentes anidados requieren rutas explícitas.
-Solo se leen mensajes user/assistant, sin herramientas ni razonamiento; no se
-verifica rama activa ni selección en memoria. No se consulta ningún servicio cloud.
+Codex: `--host codex --store /path/.codex/sessions`. Claude Code: `--host claude --store /path/.claude/projects`. Use `list` to list, `search --query "topic"` to search and `read --session EXACT-ID --store FILE.jsonl` to read. Use the path returned by the listing so the CLI does not scan the whole profile. Archived files, extra profiles and nested subagents need explicit paths. Only user/assistant messages are read, with no tools or reasoning, and neither the active branch nor in-memory selection is verified. No cloud service is queried.
 
-## Verificación sin datos personales
+## Verifying without personal data
 
-1. Ejecuta la suite offline.
-2. Usa --plan con el anfitrión y store aprobados; comprueba fuente y ruta.
-3. Verifica descubrimiento de la skill en una sesión nueva o recargada.
-4. Solo con permiso de lectura real, ejecuta list con limit 1, timeout corto y snapshot coherente. No registres la salida privada en el repositorio.
-5. Informa resultados y límites. Que un modelo lea una skill una vez no garantiza que la use siempre.
+1. Run the offline test suite.
+2. Use `--plan` with the host and store you approved; check the source and path.
+3. Check skill discovery in a new or reloaded session.
+4. Only with permission to read real history, run `list` with `--limit 1`, a short timeout and a consistent snapshot. Do not record private output in the repository.
+5. Report results and limits. A model reading a skill once does not guarantee it will always use it.

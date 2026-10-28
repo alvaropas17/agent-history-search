@@ -64,6 +64,34 @@ class TranscriptTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, 'unsupported_transcript_schema'):
                 read(args, plan(args))
 
+    def test_metadata_selection_then_exact_file_read(self):
+        """Local selection keeps IDs and file scope; it does not expose cloud summaries."""
+        with tempfile.TemporaryDirectory() as folder:
+            for sid, title in [('chosen', 'Pricing discussion'), ('other', 'Unrelated topic')]:
+                rows = [
+                    {'type': 'session_meta', 'payload': {'id': sid}},
+                    {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user',
+                        'content': [{'type': 'input_text', 'text': title}]}},
+                    {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant',
+                        'content': [{'type': 'output_text', 'text': 'Evidence for ' + sid}]}},
+                ]
+                (Path(folder) / (sid + '.jsonl')).write_text(
+                    ''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
+            args = parser().parse_args(['list', '--host', 'codex', '--store', folder])
+            listing = read(args, plan(args))
+            selected = next(item for item in listing['results']
+                            if item['title'] == 'Pricing discussion')
+            self.assertEqual(selected['session_id'], 'chosen')
+            self.assertNotIn('text', selected)
+            self.assertNotIn('summary', selected)
+            args = parser().parse_args(['read', '--host', 'codex', '--store',
+                selected['store'], '--session', selected['session_id'], '--limit', '10',
+                '--context', '3000'])
+            result = read(args, plan(args))
+            self.assertEqual(len(result['results']), 2)
+            self.assertTrue(all(item['session_id'] == 'chosen' for item in result['results']))
+            self.assertNotIn('Evidence for other', json.dumps(result))
+
     def test_cross_source_requires_reason(self):
         args = parser().parse_args(['list', '--host', 'pi', '--source', 'claude', '--store', '.'])
         with self.assertRaisesRegex(Exception, 'source_change'):

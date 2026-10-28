@@ -1,10 +1,10 @@
 """Bounded Codex and Claude Code JSONL readers; no indexes or profile writes."""
+from collections import deque
 from pathlib import Path
 
 from .core import (HistoryError, arguments_text, emit_message, emit_tool, in_dates, join_tools,
                    output_failure, read_json, signature, text_content, tool_text)
 
-MAX_FILE = 32 * 1024 * 1024
 MAX_LINE = 2 * 1024 * 1024
 MAX_FILES = 500
 
@@ -35,22 +35,49 @@ def candidates(store, source, budget):
     return sorted(found, key=lambda p: (p.stat().st_mtime_ns, str(p)), reverse=True)
 
 
-def load(file, source, budget):
+def load(file, source, budget, args):
     before = signature(file)
-    if before['bytes'] > MAX_FILE or before['bytes'] > budget.bytes_left:
-        budget.note('transcript_file_exceeds_byte_budget')
-        return None
     sid, cwd, messages, events, seen = None, None, [], [], False
+    text_mode = not args.tool_calls and args.action != 'list'
+    hits = deque(maxlen=args.limit + 1)
+    first_user = last_message = None
     with file.open('rb') as stream:
-        for number in range(1, 100002):
-            raw = stream.readline(MAX_LINE + 1)
+        number = 0
+        while True:
+            try:
+                budget.check()
+            except HistoryError:
+                budget.note('deadline_exceeded')
+                break
+            if budget.rows_left <= 0 or budget.bytes_left <= 0:
+                budget.note('scan_budget_reached')
+                break
+            raw = stream.readline(min(MAX_LINE + 1, budget.bytes_left))
             if not raw:
                 break
+            number += 1
+            if not budget.take(len(raw)):
+                break
+            if not raw.endswith(b'\n') and stream.tell() < before['bytes']:
+                budget.note('transcript_line_too_large' if len(raw) > MAX_LINE
+                            else 'scan_budget_reached')
+                # Drain one oversized record in bounded chunks. Never parse a suffix.
+                while not raw.endswith(b'\n') and budget.bytes_left > 0 and budget.rows_left > 0:
+                    try:
+                        budget.check()
+                    except HistoryError:
+                        budget.note('deadline_exceeded')
+                        break
+                    raw = stream.readline(min(MAX_LINE + 1, budget.bytes_left))
+                    if not raw or not budget.take(len(raw)):
+                        break
+                if not raw.endswith(b'\n'):
+                    budget.note('scan_budget_reached')
+                    break
+                continue
             if len(raw) > MAX_LINE:
                 budget.note('transcript_line_too_large')
-                return None
-            if not budget.take(len(raw)):
-                return None
+                continue
             if not raw.strip():
                 continue
             seen = True
@@ -68,13 +95,13 @@ def load(file, source, budget):
                     cwd = payload.get('cwd')
                 kind = payload.get('type')
                 ref = {'entry_id': str(row.get('ordinal', number))}
-                if row.get('type') == 'response_item' and kind in ('function_call', 'custom_tool_call'):
+                if args.tool_calls and row.get('type') == 'response_item' and kind in ('function_call', 'custom_tool_call'):
                     events.append(('call', payload.get('call_id'), {
                         'tool': payload.get('name'),
                         'arguments': arguments_text(payload.get('arguments', payload.get('input'))),
                         'timestamp': row.get('timestamp'), 'ref': ref}))
                     continue
-                if row.get('type') == 'response_item' and kind in ('function_call_output', 'custom_tool_call_output'):
+                if args.tool_calls and row.get('type') == 'response_item' and kind in ('function_call_output', 'custom_tool_call_output'):
                     text = tool_text(payload.get('output'))
                     events.append(('result', payload.get('call_id'), {
                         'result': text, 'failure': output_failure(text),
@@ -101,7 +128,7 @@ def load(file, source, budget):
                 role = payload.get('role')
                 body = text_content(payload.get('content'))
                 eid = row.get('uuid') or str(number)
-                for block in payload.get('content') if isinstance(payload.get('content'), list) else ():
+                for block in payload.get('content') if args.tool_calls and isinstance(payload.get('content'), list) else ():
                     if not isinstance(block, dict):
                         continue
                     if block.get('type') == 'tool_use':
@@ -114,7 +141,16 @@ def load(file, source, budget):
                             'failure': 'is_error' if block.get('is_error') is True else None,
                             'result_timestamp': row.get('timestamp'), 'result_ref': {'entry_id': eid}}))
             if role in ('user', 'assistant') and body:
-                messages.append((eid, role, row.get('timestamp'), body))
+                stamp = row.get('timestamp')
+                if text_mode:
+                    if not args.entry or args.entry == eid:
+                        hit = emit_message(args, budget, {'entry_id': eid}, role, stamp, body)
+                        if hit is not None:
+                            hits.append(hit)
+                elif args.action == 'list':
+                    last_message = (eid, role, stamp, '')
+                    if role == 'user' and first_user is None:
+                        first_user = (eid, role, stamp, body[:160])
     if signature(file) != before:
         budget.note('transcript_changed_during_read')
         return None
@@ -124,6 +160,7 @@ def load(file, source, budget):
             budget.note('empty_transcript_skipped')
             return None
         raise HistoryError('unsupported_transcript_schema')
+    messages = list(hits) if text_mode else [m for m in (first_user, last_message) if m]
     return sid, cwd, messages, events, before
 
 
@@ -131,7 +168,7 @@ def run(args, store, budget):
     source = args.source or args.host
     results = []
     for file in candidates(store, source, budget):
-        loaded = load(file, source, budget)
+        loaded = load(file, source, budget, args)
         if loaded is None:
             if budget.rows_left <= 0 or budget.bytes_left <= 0:
                 break
@@ -154,12 +191,8 @@ def run(args, store, budget):
                 if len(results) > args.limit:
                     break
         else:
-            for eid, role, stamp, body in reversed(messages):
-                if args.entry and args.entry != eid:
-                    continue
-                hit = emit_message(args, budget, {**base, 'entry_id': eid}, role, stamp, body)
-                if hit is not None:
-                    results.append(hit)
+            for hit in reversed(messages):
+                results.append({**base, **hit})
                 if len(results) > args.limit:
                     break
         if len(results) > args.limit:

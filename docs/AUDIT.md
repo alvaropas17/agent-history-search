@@ -1,39 +1,25 @@
-# Procedencia, licencia y auditoría de alcance
+# Provenance, license and scope audit
 
-## Corrección de la conclusión inicial
+## Independent implementation
 
-La ausencia de LICENSE en una carpeta no demuestra que un script sea de terceros ni impide reutilizar código propio. La primera entrega fue demasiado conservadora al detenerse ahí. Esta revisión separa los hechos de las inferencias.
+The readers in this package are new, small and self-contained. They were written from the documented session formats of each agent and from schema metadata (table and column names). No existing reader, router or Pocket extension was copied, and no third-party code is vendored. Table names, field names and interoperable formats are kept because compatibility requires them, not because an implementation was copied.
 
-## Evidencia de procedencia disponible
+Pi Pocket is itself MIT-licensed by its authors. Nothing from its extension is included, and its license is not applied to other files here by proximity. If third-party code is ever added, audit it and add its notices first.
 
-Se inspeccionaron history-route.py, pocket-history.py, oc2_sessions.py, omp_sessions.py y _sessions_common.py en las skills locales. Los encabezados y referencias muestran helpers especializados en esta instalación, pero no contienen una atribución upstream que demuestre autoría o licencia. Ambos directorios de skills no son repositorios Git según git rev-parse, de modo que no hay historial de commits local directo para verificar autores.
+## License
 
-Las dos búsquedas acotadas en el historial Pocket seleccionado (oc2_sessions.py y oc2-sessions) no devolvieron evidencia. No se cambió a otro almacén ni se interpretó eso como prueba de que su creación no ocurrió. El catálogo de wiring documenta integración local de esos helpers, pero instalación/adaptación local no prueba titularidad de todo su código.
+The new code and documentation are released under the MIT license, `Copyright (c) 2026 alvaropas17`, as stated in [LICENSE](../LICENSE). This does not relicense anyone else's code. Preparing a distribution ZIP is not a release: nothing is published or pushed by the tooling in this repository.
 
-**Conclusión verificada:** son lectores instalados localmente; no se encontró procedencia legal suficiente para atribuirlos a un upstream o al usuario. **Inferencia limitada:** su especialización y documentación son compatibles con desarrollo/adaptación local, pero no bastan para certificar autoría. No se afirma que tengan una licencia restrictiva.
+## Data touched while building it
 
-## Implementación independiente entregada
+The only direct inspection of real history stores was a read-only `PRAGMA table_info` on the known OpenCode and Pocket tables, printing column names and types only. No real conversations were dumped, no databases were copied, and test fixtures are synthetic.
 
-Se sustituyó el wrapper por lectores nuevos, pequeños y autónomos. No se copiaron los lectores existentes, su router ni la extensión de Pocket. Se consultaron sus contratos y formatos, documentación de Pi/Pocket y metadatos de esquema; las funciones nuevas no dependen de sus archivos ni rutas. Los nombres de tablas/campos y los formatos interoperables se conservan por necesidad de compatibilidad, no como una copia de implementación.
+## Controls and tests
 
-La base Pocket declara MIT (copyright Tanner Middleton 2026). No se copió su extensión ni se aplica su licencia a otros archivos por cercanía. No se copiaron las skills consultadas ni se incorporaron sus textos al runtime. No hay código de terceros vendorizado que exija añadir sus notices al paquete actual; si se añade en el futuro, debe auditarse antes.
+Parameter validation, exact ID equality, parameterised SQL for values and constant SQL identifiers, one worker process per query without a shell, a timeout, and input/output budgets. SQLite is opened `immutable`, which avoids auxiliary writes, and a database with a `-wal` file is refused so recent data is not silently hidden. Snapshots must be consistent and owned by the user. There is no authentication, network access, installation or permission change.
 
-## Licencia MIT aprobada
+The offline tests generate their own databases and JSONL files, compare hashes, check that writes are rejected, and cover explicit sources, branches, invalid formats, limits and the real worker. They do not exercise every concurrency state and they do not prove that an agent will load the skill automatically. Current OWASP guidance was not checked online; known principles were applied, with no claim of certification.
 
-La propuesta inicial quedó resuelta el 17-10-2026: el usuario autorizó expresamente aplicar MIT al código y la documentación nuevos y confirmó que es el titular. Se usa su identificador verificado alvaropas17, sin email: Copyright (c) 2026 alvaropas17. LICENSE contiene el texto MIT definitivo y el manifiesto 0.2.1 declara MIT. Esta autorización no relicencia código de terceros. No se requiere decidir sobre los lectores antiguos para ejecutar o distribuir esta implementación independiente.
+## Validation limits
 
-LICENSE-MIT.proposed.txt se conserva como borrador histórico local, excluido del ZIP 0.2.1. El ZIP 0.2.0 no se sobrescribe. La autorización de licencia no constituye permiso de publicación: no se hizo commit, push ni publicación.
-
-## Inspección de datos autorizada y limitada
-
-Única inspección directa de los almacenes: PRAGMA table_info de tablas conocidas en oc2 y Pocket, en modo readonly. Se imprimieron únicamente columnas/tipos. No se buscaron conversaciones reales con la nueva CLI, no se volcaron registros privados y no se copiaron bases. Las búsquedas de procedencia se hicieron con history_search en Pocket y no recuperaron resultados.
-
-## Controles y pruebas
-
-Validación de parámetros, igualdad exacta de IDs, SQL parametrizado para valores, identificadores SQL constantes, separación de proceso sin shell, timeout y presupuestos de entrada/salida. SQLite immutable evita escrituras auxiliares; ante WAL se rechaza para no ocultar datos recientes. Los snapshots deben ser coherentes y propiedad del usuario. No hay autenticación, red, instalación ni cambio de permisos.
-
-Las pruebas offline generan sus propias bases/JSONL, comparan hashes, verifican rechazo de escrituras, fuentes explícitas, ramas, formatos inválidos, límites y el worker real. No prueban todos los estados de concurrencia ni garantizan carga automática de la skill. No se verificaron guías OWASP actuales en red; se aplicaron principios conocidos, sin afirmación de certificación.
-
-## Límites de validación
-
-Probado en Python 3.14 sobre Windows. Código sin dependencias externas y rutas pathlib, pero macOS/Linux y Python 3.10 requieren ejecutar la suite allí antes de afirmarlos como validados. No se hizo E2E con conversaciones personales ni instalación en harnesses. OpenCode usa un solo esquema verificado; no todos los productos/versiones llamados OpenCode.
+Tested with Python 3.14 on Windows. The code has no external dependencies and uses `pathlib`, but macOS, Linux and Python 3.10 need the test suite run there before being claimed as validated. No end-to-end run was done against personal conversations or inside every agent. OpenCode support covers one verified schema, not every product or version called OpenCode.

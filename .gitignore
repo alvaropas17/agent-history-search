@@ -5,5 +5,4 @@ __pycache__/
 *.jsonl
 .env*
 local-config.*
-scaffold-backup-v1/
 dist/

@@ -21,6 +21,10 @@ def parser():
     p.add_argument('--store', type=Path, required=True,
                    help='Pi sessions directory or one JSONL; oc2/Pocket exact SQLite path')
     p.add_argument('--query', default='')
+    p.add_argument('--query-variant', action='append', default=[],
+                   help='Additional literal OR query; repeatable, search only. At most 8 queries, '
+                        '2000 characters each and 8000 total; one shared result limit. '
+                        'The first matching query selects the snippet.')
     p.add_argument('--session', help='Exact session ID (Pocket: conversation ID)')
     p.add_argument('--entry', help='Exact entry/message ID; with --tool-calls it may name the call or its result')
     p.add_argument('--since', type=date.fromisoformat, help='Inclusive UTC day')
@@ -51,15 +55,20 @@ def plan(a):
         raise HistoryError('invalid_timeout_or_scan_limit')
     if len(a.query) > 2000 or len(a.reason) > 1000:
         raise HistoryError('query_or_reason_too_long')
+    variants = a.query_variant
+    queries = ([a.query] if a.query else []) + variants
+    if variants and (len(queries) > 8 or sum(map(len, queries)) > 8000
+                     or any(not q.strip() or len(q) > 2000 for q in queries)):
+        raise HistoryError('invalid_query_variants')
     if (a.tool or a.state != 'any') and not a.tool_calls:
         raise HistoryError('tool_filters_require_tool_calls')
     if a.tool_calls and a.action == 'list':
         raise HistoryError('tool_calls_not_valid_for_list')
     if a.tool is not None and not 0 < len(a.tool) <= 200:
         raise HistoryError('invalid_tool_name')
-    if a.action == 'search' and not a.query.strip() and not a.tool_calls:
+    if a.action == 'search' and not a.query.strip() and not variants and not a.tool_calls:
         raise HistoryError('search_requires_query')
-    if a.action != 'search' and a.query:
+    if a.action != 'search' and (a.query or variants):
         raise HistoryError('query_is_search_only')
     if a.action == 'expand' and not a.session:
         raise HistoryError('expand_requires_exact_session_id')
