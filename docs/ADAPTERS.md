@@ -1,6 +1,6 @@
 # Uso desde cada harness
 
-La integración distribuida es CLI + instrucciones/skill, no plugin, MCP ni tool nativa. No hay instalador automático. Antes de modificar configuración, lee la documentación de la versión destino y crea backups exclusivos. No se cambió ningún harness durante la preparación.
+La integración incluye un servidor MCP opcional para Codex y Claude Code. Para OpenCode, Pi, omp y Pi Pocket, de momento se usa la CLI con instrucciones o skill. No hay instalador automático. Antes de modificar configuración, lee la documentación de la versión destino y crea backups exclusivos. No se cambió ningún harness durante la preparación.
 
 ## Compartir una sola instalación
 
@@ -44,7 +44,20 @@ Exportación oficial para una persona: Menu → Export as Markdown o /export. No
 
 ## Codex y Claude Code
 
-Ambos usan la misma CLI, sin plugin ni herramienta nativa. Expón la carpeta
+La opción recomendada es el servidor MCP incluido `history_mcp.py`, que ejecuta
+el mismo lector que la CLI. Sigue los comandos y el bloque de configuración del
+[README](../README.md#optional-mcp-server): Claude Code usa `claude mcp add` y
+Codex registra `agent_history_search` en `~/.codex/config.toml`. Revisa la versión
+instalada, muestra el cambio y guarda una copia antes de editar configuración;
+conserva los demás servidores. Usa rutas absolutas, un `--host` fijo y solo los
+stores autorizados. Otro historial requiere además `source` y `reason` al consultar.
+
+En una sesión nueva, verifica una llamada real a la herramienta `history_search`
+del MCP con `action: list` y `limit: 1`; después lee el ID devuelto y busca un
+término conocido. No basta con comprobar la CLI si elegiste MCP. Si falla,
+informa del error antes de proponer otra modalidad.
+
+La CLI sigue disponible como alternativa explícita. Para esa ruta, expón la carpeta
 `skill/` como `agent-history-search` mediante el mecanismo de skills que admita
 la versión instalada. En la máquina de referencia existen `~/.codex/skills` y
 `~/.claude/skills`; verifica descubrimiento en una sesión nueva, no presupongas
@@ -55,13 +68,15 @@ Codex: `--host codex --store /ruta/.codex/sessions`. Claude Code:
 `search --query "tema"`; para leer, `read --session ID-EXACTO --store ARCHIVO-JSONL`.
 Usa la ruta devuelta por listado para evitar escanear todo el perfil. Los archivos
 archivados, perfiles adicionales y subagentes anidados requieren rutas explícitas.
-Solo se leen mensajes user/assistant, sin herramientas ni razonamiento; no se
+Por defecto solo se leen mensajes user/assistant, sin herramientas ni razonamiento.
+Las llamadas y resultados de herramientas requieren la opción explícita
+`--tool-calls` en CLI o `tool_calls` en MCP. No se
 verifica rama activa ni selección en memoria. No se consulta ningún servicio cloud.
 
 ## Verificación sin datos personales
 
 1. Ejecuta la suite offline.
 2. Usa --plan con el anfitrión y store aprobados; comprueba fuente y ruta.
-3. Verifica descubrimiento de la skill en una sesión nueva o recargada.
+3. En una sesión nueva o recargada, verifica el MCP si elegiste esa modalidad; para el helper, verifica el descubrimiento de la skill o las instrucciones.
 4. Solo con permiso de lectura real, ejecuta list con limit 1, timeout corto y snapshot coherente. No registres la salida privada en el repositorio.
 5. Informa resultados y límites. Que un modelo lea una skill una vez no garantiza que la use siempre.
