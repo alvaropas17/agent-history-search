@@ -1,6 +1,6 @@
 # Using it from each agent
 
-The integration is a CLI plus instructions/skill: it is not a plugin, an MCP server or a native tool, and there is no automatic installer. Before changing any configuration, read the documentation of the version you target and make an exclusive backup of every file you edit.
+The integration is a CLI plus instructions/skill, with an optional stdio MCP server (`history_mcp.py`, see the README) for agents that support MCP. It is not a plugin or a native tool, and there is no automatic installer. Before changing any configuration, read the documentation of the version you target and make an exclusive backup of every file you edit.
 
 ## One shared installation
 

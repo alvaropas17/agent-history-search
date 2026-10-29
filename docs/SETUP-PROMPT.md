@@ -2,7 +2,7 @@
 
 Download the repository or extract a distribution into a stable directory.
 Open your usual assistant with access to that directory and paste the prompt below.
-You do not need a plugin, MCP server, or Pi Pocket extension.
+You do not need a plugin, MCP server, or Pi Pocket extension (an optional MCP server exists, see the README).
 
 ## Copy this prompt
 

@@ -15,6 +15,8 @@ Load this skill to search, list or expand saved conversations, including questio
 
 The person who installed the package records, in the agent's instructions file, the absolute path to `history_search.py`, the Python interpreter to use, the `--host` for this agent and the `--store` folders you may read. Use those values. If they are missing, ask where the package is; do not search other profiles and do not run a same-named script without checking where it came from.
 
+If the agent exposes the optional MCP tool `history_search` (server `agent-history-search`), call it instead of the CLI: `action` is `search`, `list` or `read` and the options keep the CLI names with underscores. Host and authorized stores are fixed by the server; every Hard Rule below still applies, and the CLI remains the fallback.
+
 ## Hard Rules
 
 - Identify the host from context, never from the working directory or the model. Use only the instance and stores you were authorized to read.

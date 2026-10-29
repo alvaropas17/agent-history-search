@@ -2,8 +2,8 @@
 
 Search your past conversations with coding agents, from any of them. One
 read-only Python helper for **Claude Code**, **Codex**, **OpenCode**, **Pi**,
-**omp (Oh My Pi)** and **Pi Pocket**. No pip packages, servers, plugins, MCP,
-accounts or network access.
+**omp (Oh My Pi)** and **Pi Pocket**. No pip packages, accounts or network
+access. An [optional MCP server](#optional-mcp-server) wraps the same CLI.
 
 Ask your agent things like:
 
@@ -119,6 +119,33 @@ check each step against this list.
    [docs/ADAPTERS.md](docs/ADAPTERS.md).
 6. **Check it in a new session.** Ask: "Use Agent History Search to list my latest
    conversation and tell me its session ID." Make sure the agent actually runs the CLI.
+
+## Optional MCP server
+
+Agents that speak MCP can call the helper as a typed tool instead of building a shell
+command each time. `history_mcp.py` is a stdio server with no dependencies. It adds no
+search logic: each call runs the same `history_search.py` worker, so limits, timeouts and
+the no-silent-fallback rules are unchanged. Speed is the same as the CLI; the gain is
+fewer quoting mistakes and one structured call.
+
+It is fixed to one host and a short allow-list of stores when you register it. The model
+can only pass `store` values that sit inside an authorized store, and reading another
+source still needs `source` plus `reason`.
+
+```powershell
+# Claude Code: this agent's history only (default store ~/.claude/projects)
+claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-history-search\history_mcp.py --host claude
+
+# Also authorize Codex (repeat --store SOURCE=PATH; it overrides a default store too)
+claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-history-search\history_mcp.py --host claude --store codex=$HOME\.codex\sessions
+```
+
+The tool is `history_search` with `action` (`search`, `list`, `read`) and the same options
+as the CLI (`query`, `query_variants`, `session`, `entry`, `since`, `until`, `limit`,
+`context`, `tool_calls`, `tool`, `state`, `source`, `reason`, `store`). It returns the CLI
+JSON and sets `isError` when `status` is `error`. OpenCode and Pocket stores still need
+a consistent snapshot, see the next section. The CLI remains the fallback for agents
+without MCP.
 
 ## OpenCode and Pi Pocket: if the app is open
 
