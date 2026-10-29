@@ -15,6 +15,8 @@ import sys
 from .cli import SOURCES
 
 PROTOCOL = '2025-06-18'
+# Versions this server's behaviour is valid for; a client asking for one gets it echoed back.
+SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05')
 ENTRY = Path(__file__).resolve().parents[1] / 'history_search.py'
 MAX_LINE = 1024 * 1024
 SQLITE_SOURCES = ('opencode', 'pocket')
@@ -147,10 +149,17 @@ def handle(message, host, stores, out):
     if id_ is None:  # notifications get no reply
         return
     if method == 'initialize':
-        respond(out, id_, {'protocolVersion': PROTOCOL, 'capabilities': {'tools': {}},
+        asked = (message.get('params') or {}).get('protocolVersion')
+        respond(out, id_, {'protocolVersion': asked if asked in SUPPORTED else PROTOCOL,
+                           'capabilities': {'tools': {}},
                            'serverInfo': {'name': 'agent-history-search', 'version': '0.3.0'}})
     elif method == 'ping':
         respond(out, id_, {})
+    elif method in ('resources/list', 'resources/templates/list', 'prompts/list'):
+        # Clients probe these even when capabilities omit them; answer empty, not an error.
+        key = {'resources/list': 'resources', 'resources/templates/list': 'resourceTemplates',
+               'prompts/list': 'prompts'}[method]
+        respond(out, id_, {key: []})
     elif method == 'tools/list':
         respond(out, id_, {'tools': [tool_schema(host, tuple(stores))]})
     elif method == 'tools/call':
@@ -184,7 +193,8 @@ def main(argv=None, stdin=None, stdout=None):
     stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
     for stream in (stdin, stdout):
         if hasattr(stream, 'reconfigure'):
-            stream.reconfigure(encoding='utf-8')
+            # newline='\n' keeps Windows from writing CRLF between JSON-RPC messages.
+            stream.reconfigure(encoding='utf-8', newline='\n')
     for line in stdin:
         if not line.strip() or len(line) > MAX_LINE:
             continue

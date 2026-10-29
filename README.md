@@ -140,6 +140,23 @@ claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-hist
 claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-history-search\history_mcp.py --host claude --store codex=$HOME\.codex\sessions
 ```
 
+Codex: add the server to `~/.codex/config.toml` (or run `codex mcp add`). Use absolute
+paths for the stores, because Codex starts MCP servers with a reduced environment.
+
+```toml
+[mcp_servers.agent_history_search]
+command = "py"
+args = ["-3", "-B", "C:\\Tools\\agent-history-search\\history_mcp.py", "--host", "codex",
+        "--store", "claude=C:\\Users\\<you>\\.claude\\projects"]
+startup_timeout_sec = 30
+```
+
+On macOS and Linux use `command = "python3"` and drop `"-3"`. The server answers the
+protocol version the client asks for (2024-11-05, 2025-03-26 or 2025-06-18), writes
+LF-only JSON lines and answers empty lists to `resources/list` and `prompts/list`.
+Codex shows the tool as `history_search` of the server `agent_history_search`. Each
+call finishes in under 45 s, inside Codex's default 60 s tool timeout.
+
 The tool is `history_search` with `action` (`search`, `list`, `read`) and the same options
 as the CLI (`query`, `query_variants`, `session`, `entry`, `since`, `until`, `limit`,
 `context`, `tool_calls`, `tool`, `state`, `source`, `reason`, `store`). It returns the CLI

@@ -93,6 +93,39 @@ class McpServer(Fixtures):
         self.assertEqual([r['id'] for r in replies], [1, 2])
         self.assertIn('active', replies[1]['result']['content'][0]['text'])
 
+    def test_protocol_version_is_negotiated(self):
+        for asked in mcp_server.SUPPORTED:
+            reply, = rpc('pi', self.stores(), ('initialize', {'protocolVersion': asked}))
+            self.assertEqual(reply['result']['protocolVersion'], asked)
+        reply, = rpc('pi', self.stores(), ('initialize', {'protocolVersion': '1999-01-01'}))
+        self.assertEqual(reply['result']['protocolVersion'], mcp_server.PROTOCOL)
+
+    def test_optional_listings_answer_empty_not_error(self):
+        replies = rpc('pi', self.stores(), ('resources/list', {}), ('resources/templates/list', {}),
+                      ('prompts/list', {}))
+        self.assertEqual([next(iter(r['result'].values())) for r in replies], [[], [], []])
+
+    def test_codex_client_session_over_stdio(self):
+        """Message shapes captured from codex-cli 0.130 (id 0, _meta.progressToken, elicitation)."""
+        lines = [
+            {'jsonrpc': '2.0', 'id': 0, 'method': 'initialize',
+             'params': {'protocolVersion': '2025-06-18', 'capabilities': {'elicitation': {}},
+                        'clientInfo': {'name': 'codex-mcp-client', 'title': 'Codex', 'version': '0.130.0'}}},
+            {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+            {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list', 'params': {'_meta': {'progressToken': 0}}},
+            {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
+             'params': {'name': 'history_search', 'arguments': {'action': 'list', 'limit': 2},
+                        '_meta': {'progressToken': 1}}},
+        ]
+        proc = subprocess.run([sys.executable, '-B', str(ROOT / 'history_mcp.py'), '--host', 'pi',
+                               '--store', f'pi={self.pi}'],
+                              input=''.join(json.dumps(x) + '\n' for x in lines).encode(),
+                              capture_output=True, timeout=60)
+        self.assertNotIn(b'\r', proc.stdout)  # LF only, even on Windows
+        replies = [json.loads(x) for x in proc.stdout.decode().splitlines()]
+        self.assertEqual([r['id'] for r in replies], [0, 1, 2])
+        self.assertFalse(replies[2]['result']['isError'])
+
     def test_bad_store_option_is_rejected(self):
         with self.assertRaises(SystemExit):
             mcp_server.parse_stores('pi', ['nonsense'])
