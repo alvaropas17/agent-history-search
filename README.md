@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/agent-history-search.png" alt="Agent History Search" width="720">
+</p>
+
 # Agent History Search
 
 Search your past conversations with coding agents, from any of them. One
