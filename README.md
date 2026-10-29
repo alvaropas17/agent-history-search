@@ -42,7 +42,7 @@ from your own history.
 
 ## Set it up
 
-Setup is the same six steps whoever does them. Do them yourself, or let your AI do
+Follow these six steps whether you set it up manually or ask your agent to do it. Do them yourself, or let your AI do
 them for you: download the package (step 1), open your usual coding agent with access
 to that folder, and paste the prompt from
 **[docs/SETUP-PROMPT.md](docs/SETUP-PROMPT.md)** with the folder, the agent you will
@@ -80,7 +80,19 @@ check each step against this list.
    py -3 -B history_search.py search --host claude --store "$HOME\.claude\projects" --query "pricing" --limit 5
    ```
 
-5. **Teach your agent to use it.** Expose the package's `skill\` folder under the name
+5. **Connect it to your agent.** Choose one interface before continuing:
+
+   | Agent | Setup route |
+   |---|---|
+   | Codex, Claude Code | Prefer the included MCP server; follow [Optional MCP server](#optional-mcp-server) below, then continue to step 6. |
+   | OpenCode, Pi, omp, Pi Pocket | Use the CLI helper with the skill or local instructions below. |
+   
+   Keep a backup before editing existing configuration, show the proposed diff,
+   and preserve unrelated settings. Configure a fixed host and only the stores
+   you authorize. MCP uses the same reader; it does not grant access to every
+   agent's history automatically.
+
+   **CLI helper route:** expose the package's `skill\` folder under the name
    `agent-history-search` in a folder your agent loads skills from. A junction avoids
    copying, so updates to the package reach the skill:
 
@@ -110,8 +122,12 @@ check each step against this list.
    skill folders can change between versions. More detail per agent is in
    [docs/ADAPTERS.md](docs/ADAPTERS.md) (in Spanish).
 6. **Check it in a new session.** Ask: "Use Agent History Search to list my latest
-   conversation and tell me its session ID." Make sure the agent actually calls the
-   configured MCP tool, or the CLI if MCP is unavailable.
+   conversation from the configured source. Tell me its source and session ID
+   without showing the contents." Confirm an actual `history_search` MCP call
+   (server `agent_history_search` in Codex), or a CLI call for the helper route.
+   Then read that exact session and search for a term you choose. A passing offline
+   suite or `--plan` alone does not prove the integration works. If MCP fails,
+   report the configuration error; do not silently switch interfaces or sources.
 
 ## Optional MCP server
 
@@ -140,9 +156,16 @@ paths for the stores, because Codex starts MCP servers with a reduced environmen
 [mcp_servers.agent_history_search]
 command = "py"
 args = ["-3", "-B", "C:\\Tools\\agent-history-search\\history_mcp.py", "--host", "codex",
-        "--store", "claude=C:\\Users\\<you>\\.claude\\projects"]
+        "--store", "codex=C:\\Users\\<you>\\.codex\\sessions"]
 startup_timeout_sec = 30
 ```
+
+Replace `<you>` and the package path with your actual absolute paths. This Codex
+example authorizes only Codex history. Add another `--store SOURCE=PATH` only if
+you explicitly want to allow that source; querying it still needs `source` and
+`reason`. Back up `config.toml` and merge this block; do not replace the file.
+If `agent_history_search` already exists, review that entry instead of adding a
+duplicate TOML table.
 
 On macOS and Linux use `command = "python3"` and drop `"-3"`. The server answers the
 protocol version the client asks for (2024-11-05, 2025-03-26 or 2025-06-18), writes
