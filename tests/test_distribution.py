@@ -28,7 +28,8 @@ class Distribution(unittest.TestCase):
                 self.assertEqual(set(names), expected)
                 for guide in ('docs/SETUP-PROMPT.md', 'docs/POCKET.md',
                               'skill/SKILL.md', 'skill/references/usage.md',
-                              'tests/test_tool_calls.py'):
+                              'tests/test_tool_calls.py', 'history_mcp.py',
+                              'agent_history/mcp_server.py', 'tests/test_mcp_server.py'):
                     self.assertIn(prefix + guide, names)
                 pocket_guide = archive.read(prefix + 'docs/POCKET.md').decode('utf-8')
                 self.assertIn('external helper', pocket_guide)
@@ -56,6 +57,10 @@ class Distribution(unittest.TestCase):
                                   capture_output=True, timeout=5)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(json.loads(proc.stdout)['status'], 'plan')
+            proc = subprocess.run([sys.executable, '-B', 'history_mcp.py', '--help'],
+                                  cwd=unpacked, capture_output=True, timeout=5)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn(b'--host', proc.stdout)
             with self.assertRaises(FileExistsError):
                 builder.build(output)
 

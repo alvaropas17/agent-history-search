@@ -11,6 +11,25 @@ metadata:
 
 Carga al buscar, listar o ampliar conversaciones guardadas, también ante «qué comando falló», «cómo arreglamos X» o «qué herramienta usé». Lee [uso local](references/usage.md) antes de ejecutar.
 
+## MCP preferido para historiales locales
+
+Si está disponible el MCP de este paquete, usa `history_search` con parámetros
+estructurados en vez de construir comandos. Su esquema incluye `action` (`search`,
+`list`, `read`), `query`, `session`, `entry`, `store`, `limit`, `context`, `source`,
+`reason`, `tool_calls`, `tool` y `state`. El servidor fija el anfitrión y los stores
+autorizados; no adivines rutas. Comprueba el esquema expuesto: otros servidores
+pueden usar el mismo nombre con opciones diferentes.
+
+- Buscar: `{"action":"search","query":"lang=es","limit":5}`.
+- Listar: `{"action":"list","limit":5}`; leer usando el `session_id` y `store` devueltos.
+- Leer: `{"action":"read","session":"ID exacto","store":"ruta devuelta"}`.
+- Herramientas: añade `"tool_calls":true` y, para fallos, `"state":"failure"`.
+- Otra fuente: solo por petición del usuario, con `source` y `reason`.
+
+Usa la CLI si no está disponible este MCP; no la uses para saltarte un rechazo del
+servidor. MCP conserva los límites y cobertura del lector. Configuración:
+[README](../README.md#optional-mcp-server).
+
 ## Hard Rules
 
 - Identifica anfitrión por contexto, nunca por cwd/modelo. Selecciona instancia y store autorizados.
@@ -29,8 +48,8 @@ Carga al buscar, listar o ampliar conversaciones guardadas, también ante «qué
 
 ## Execution Steps
 
-1. Localiza la instalación aprobada y su ayuda; no adivines rutas.
-2. Ejecuta --plan con --host y --store explícitos.
+1. Usa el MCP de este paquete si está disponible; en caso contrario, localiza la CLI aprobada.
+2. En la CLI, ejecuta --plan con --host y --store explícitos.
 3. Usa list/search con límites; amplía después por IDs exactos.
 4. Revisa status, incomplete, notes y coverage. Respeta timeout.
 

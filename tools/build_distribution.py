@@ -8,6 +8,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     'history_search.py',
+    'history_mcp.py',
+    'agent_history/mcp_server.py',
+    'tests/test_mcp_server.py',
     'agent_history/__init__.py',
     'agent_history/__main__.py',
     'agent_history/cli.py',

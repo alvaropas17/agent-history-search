@@ -2,7 +2,8 @@
 
 Download the repository or extract a distribution into a stable directory.
 Open your usual assistant with access to that directory and paste the prompt below.
-You do not need a plugin, MCP server, or Pi Pocket extension.
+MCP is the preferred interface when supported; the CLI is available otherwise.
+No pip dependencies or Pi Pocket extension are needed.
 
 ## Copy this prompt
 
@@ -15,8 +16,9 @@ Histories I authorize you to read: <SOURCES AND THEIR PATHS, IF KNOWN>
 
 I want to ask you to "find where we discussed X", "what did I do yesterday?",
 and "what did we discuss two conversations ago?" without remembering commands.
-Do not add native integration by default. Run the existing CLI through your local
-command execution tool.
+Prefer the included history_mcp.py server when this harness supports MCP. Register
+it with a fixed --host and only the stores I authorize, following the README.
+Use the existing CLI otherwise. Do not add a native Pocket extension by default.
 
 1. Ask me to fill in any missing placeholders. Read README.md, skill/SKILL.md,
    skill/references/usage.md, and docs/ADAPTERS.md. Verify that history_search.py
@@ -29,7 +31,7 @@ command execution tool.
 3. Run the CLI help and offline tests with an external 20-second deadline.
    Do not use my histories as test fixtures. If a check fails, explain the failure;
    do not report the setup as verified.
-4. Keep the package at a stable path. It requires neither pip nor a server.
+4. Keep the package at a stable path. It requires no pip packages or network service.
    Use absolute paths to the interpreter and history_search.py when the harness
    may have a different HOME, cwd, or PATH, such as in a Pocket sandbox.
 5. For each authorized source, inspect only its candidate path, confirm that it
