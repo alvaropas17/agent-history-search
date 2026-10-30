@@ -12,7 +12,7 @@ El nombre de la carpeta que expongas debe ser agent-history-search, igual que el
 
 Según la documentación instalada consultada, carga skills desde ~/.pi/agent/skills/ y ~/.agents/skills/, además de las del proyecto sujeto a confianza. Puedes enlazar la carpeta skill/ del paquete como ~/.pi/agent/skills/agent-history-search. En Windows, una junction evita copiar; en Unix, symlink. Comprueba que el destino no exista antes. No alteres trust ni instrucciones globales completas.
 
-Tras una configuración autorizada, usa /reload en Pi y comprueba que la skill se descubre con /skill:agent-history-search. La forma exacta debe verificarse en la versión instalada antes de automatizarla. La skill invocará la CLI por las herramientas normales del agente. No registra history_search como herramienta nativa.
+Tras una configuración autorizada, usa /reload en Pi y comprueba que la skill se descubre con /skill:agent-history-search. La forma exacta debe verificarse en la versión instalada antes de automatizarla. La skill invocará la CLI por las herramientas normales del agente. Alternativa con herramienta nativa: Pi no tiene cliente MCP, pero la extensión `pi-extension/agent-history-search.ts` (enlazada en ~/.pi/agent/extensions/) registra `history_search` y delega en history_mcp.py; ver «Pi extension» en el README. Úsala o la skill, no ambas.
 
 Store habitual de Pi: ~/.pi/agent/sessions. Es una sugerencia de formato, no selección automática. Si el agentDir está personalizado, usa ese directorio de sesiones. Para omp, selecciona explícitamente `--host omp` y su propio directorio de sesiones; el lector acepta el mismo formato JSONL v2/v3. No mezcles almacenes.
 

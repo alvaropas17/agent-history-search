@@ -85,7 +85,8 @@ check each step against this list.
    | Agent | Setup route |
    |---|---|
    | Codex, Claude Code | Prefer the included MCP server; follow [Optional MCP server](#optional-mcp-server) below, then continue to step 6. |
-   | OpenCode, Pi, omp, Pi Pocket | Use the CLI helper with the skill or local instructions below. |
+   | Pi, omp | Prefer the [Pi extension](#pi-extension-native-tool) below (Pi has no MCP client); the CLI helper also works. |
+   | OpenCode, Pi Pocket | Use the CLI helper with the skill or local instructions below. |
    
    Keep a backup before editing existing configuration, show the proposed diff,
    and preserve unrelated settings. Configure a fixed host and only the stores
@@ -179,6 +180,37 @@ as the CLI (`query`, `session`, `entry`, `since`, `until`, `limit`,
 JSON and sets `isError` when `status` is `error`. OpenCode and Pocket stores still need
 a consistent snapshot, see the next section. The CLI remains the fallback for agents
 without MCP.
+
+## Pi extension (native tool)
+
+Pi (terminal) has no MCP client by design; it loads TypeScript extensions instead.
+`pi-extension/agent-history-search.ts` registers the same `history_search` tool inside
+Pi. It adds no logic of its own: each call is one round trip with `history_mcp.py`, so
+the store allow-list, argument checks, limits and no-silent-fallback rules are the MCP
+server's. It needs only Node built-ins (what Pi already runs on) and Python 3.10+.
+
+Link the file into Pi's global extensions folder (check first that the target does not
+exist), then run `/reload` in Pi:
+
+```bash
+mkdir -p ~/.pi/agent/extensions
+ln -s /path/to/agent-history-search/pi-extension/agent-history-search.ts ~/.pi/agent/extensions/agent-history-search.ts
+```
+
+On Windows use a copy, or a symlink from an elevated shell, and set
+`AGENT_HISTORY_SEARCH_DIR` to the package folder (a copy cannot locate the package).
+Optional environment variables, read when Pi starts:
+
+| Variable | Meaning |
+|---|---|
+| `AGENT_HISTORY_SEARCH_DIR` | Package folder. Default: the folder above the (symlink-resolved) extension file. |
+| `AGENT_HISTORY_SEARCH_HOST` | `pi` (default) or `omp`. |
+| `AGENT_HISTORY_SEARCH_STORES` | Extra authorized stores, `SOURCE=PATH,SOURCE=PATH`. Same rules as `--store` in the MCP server. |
+| `AGENT_HISTORY_SEARCH_PYTHON` | Python executable. Default: `py -3` on Windows, `python3` elsewhere. |
+
+Then ask Pi to list your latest conversation and confirm it called `history_search`.
+`tests/test_pi_extension.py` loads the extension with Node against a synthetic store;
+it is skipped when Node is older than 22.6.
 
 ## OpenCode and Pi Pocket: if the app is open
 

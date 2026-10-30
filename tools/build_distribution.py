@@ -11,6 +11,8 @@ FILES = (
     'history_mcp.py',
     'agent_history/mcp_server.py',
     'tests/test_mcp_server.py',
+    'pi-extension/agent-history-search.ts',
+    'tests/test_pi_extension.py',
     'agent_history/__init__.py',
     'agent_history/__main__.py',
     'agent_history/cli.py',
