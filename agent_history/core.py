@@ -88,8 +88,11 @@ def search_query(args):
     return tuple(([args.query] if args.query else []) + list(variants)) if variants else args.query
 
 
-def snippet(body, query, context):
-    """Return at most context chars; Unicode folding never changes source offsets."""
+def snippet(body, query, context, *, default_context=False):
+    """Use a total cap when explicit, or 100 characters around a default match.
+
+    Unicode folding never changes source offsets.
+    """
     # Search normalized text but map the folded location back to the original.
     folded = body.casefold()
     if isinstance(query, tuple):
@@ -104,6 +107,21 @@ def snippet(body, query, context):
         pos = folded.find(query.casefold()) if query else 0
     if pos < 0:
         return None
+    folded_end = pos + len(query.casefold())
+    if query and default_context:
+        total = 0
+        start = end = 0
+        for index, char in enumerate(body):
+            next_total = total + len(char.casefold())
+            if total <= pos < next_total:
+                start = index
+            if total < folded_end <= next_total:
+                end = index + 1
+                break
+            total = next_total
+        start, end = max(0, start - 100), min(len(body), end + 100)
+        return {'text': body[start:end], 'offset': start,
+                'text_length': len(body), 'text_truncated': start > 0 or end < len(body)}
     if query and pos:
         total = 0
         for index, char in enumerate(body):
@@ -119,7 +137,8 @@ def snippet(body, query, context):
 def emit_message(args, budget, reference, role, stamp, body):
     if role not in ('user', 'assistant') or not body or not in_dates(stamp, args):
         return None
-    part = snippet(body, search_query(args), args.context)
+    part = snippet(body, search_query(args), args.context,
+                   default_context=getattr(args, 'default_context', False))
     if part is None:
         return None
     return {**reference, 'role': role, 'timestamp': stamp, **part}
@@ -211,7 +230,8 @@ def emit_tool(args, base, item):
         text = item.get(name)
         if not isinstance(text, str):
             continue
-        part = snippet(text, query, args.context) if query else None
+        part = snippet(text, query, args.context,
+                       default_context=getattr(args, 'default_context', False)) if query else None
         found = found or part is not None
         fields[name] = part or snippet(text, '', args.context)
     if not found:

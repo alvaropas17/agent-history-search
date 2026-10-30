@@ -30,7 +30,8 @@ def parser():
     p.add_argument('--since', type=date.fromisoformat, help='Inclusive UTC day')
     p.add_argument('--until', type=date.fromisoformat, help='Inclusive UTC day')
     p.add_argument('--limit', type=int, default=5)
-    p.add_argument('--context', type=int, default=400, help='Maximum text characters per match')
+    p.add_argument('--context', type=int, default=None,
+                   help='Maximum text characters per match; default search includes 100 characters on each side')
     p.add_argument('--timeout', type=int, default=15, help='Outer worker deadline, 1..30 seconds')
     p.add_argument('--max-rows', type=int, default=20000, help='Maximum decoded input rows, 1..100000')
     p.add_argument('--tool-calls', action='store_true',
@@ -49,6 +50,9 @@ def plan(a):
     source = a.source or a.host
     if source != a.host and not a.reason.strip():
         raise HistoryError('source_change_requires_explicit_user_request_reason')
+    a.default_context = a.context is None
+    if a.context is None:
+        a.context = 400
     if not 1 <= a.limit <= 20 or not 0 <= a.context <= 6000:
         raise HistoryError('invalid_limit_or_context')
     if not 1 <= a.timeout <= 30 or not 1 <= a.max_rows <= 100000:
