@@ -35,7 +35,6 @@ class Distribution(unittest.TestCase):
                 self.assertIn('does not include a ready-to-install native Pocket extension', pocket_guide)
                 self.assertFalse(any('backup' in name or '.db' in name or '.sqlite' in name or '.jsonl' in name for name in names))
                 manifest = json.loads(archive.read(prefix + 'MANIFEST.json'))
-                self.assertEqual(manifest['version'], '0.3.0')
                 from agent_history import __version__
                 self.assertEqual(manifest['version'], __version__)
                 self.assertIn('version: "' + __version__ + '"',

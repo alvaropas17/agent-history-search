@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+from . import __version__
 from .cli import SOURCES
 
 PROTOCOL = '2025-06-18'
@@ -59,7 +60,8 @@ def tool_schema(host, sources):
                 'since': {'type': 'string', 'description': 'Inclusive UTC day, YYYY-MM-DD.'},
                 'until': {'type': 'string', 'description': 'Inclusive UTC day, YYYY-MM-DD.'},
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20, 'default': 5},
-                'context': {'type': 'integer', 'minimum': 0, 'maximum': 6000, 'default': 400},
+                'context': {'type': 'integer', 'minimum': 0, 'maximum': 6000,
+                            'description': 'Omit for the full literal match plus up to 100 characters per side; explicit values keep the total character cap.'},
                 'tool_calls': {'type': 'boolean', 'default': False,
                                'description': 'Search/read tool calls and results instead of text.'},
                 'tool': {'type': 'string', 'description': 'Exact tool name (needs tool_calls).'},
@@ -152,7 +154,7 @@ def handle(message, host, stores, out):
         asked = (message.get('params') or {}).get('protocolVersion')
         respond(out, id_, {'protocolVersion': asked if asked in SUPPORTED else PROTOCOL,
                            'capabilities': {'tools': {}},
-                           'serverInfo': {'name': 'agent-history-search', 'version': '0.3.0'}})
+                           'serverInfo': {'name': 'agent-history-search', 'version': __version__}})
     elif method == 'ping':
         respond(out, id_, {})
     elif method in ('resources/list', 'resources/templates/list', 'prompts/list'):

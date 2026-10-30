@@ -6,7 +6,7 @@ import subprocess
 import sys
 import unittest
 
-from agent_history import cli, mcp_server
+from agent_history import __version__, cli, mcp_server
 from test_history_search import ROOT, Fixtures
 
 
@@ -30,6 +30,7 @@ class McpServer(Fixtures):
     def test_handshake_and_tool_list(self):
         init, tools = rpc('pi', self.stores(), ('initialize', {}), ('tools/list', {}))
         self.assertEqual(init['result']['serverInfo']['name'], 'agent-history-search')
+        self.assertEqual(init['result']['serverInfo']['version'], __version__)
         tool, = tools['result']['tools']
         self.assertEqual(tool['name'], 'history_search')
         self.assertTrue(tool['annotations']['readOnlyHint'])

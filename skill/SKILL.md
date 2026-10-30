@@ -4,7 +4,7 @@ description: "Search, list and read past conversations from Claude Code, Codex, 
 license: MIT
 metadata:
   author: "Agent History Search contributors"
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 ## Activation Contract
@@ -72,6 +72,12 @@ CLI. Check `incomplete`, `notes` and `coverage`.
 ## Output Contract
 
 Report the source, instance, original references, relevant text and coverage. Do not claim an active branch for Pocket/OpenCode or that what was said is still true.
+
+## Evidence rules
+
+- When you recover a command or fix, quote the full command with at least 100 source characters before and after it when available. Expand the selected record if needed. Complete a cut sentence or procedure step. State when less context exists; never invent it or combine separate messages into one quotation.
+- Cite the source, instance, session and entry/message identifiers available. Seek the execution result or an explicit user confirmation. Distinguish proposed, executed and confirmed actions. A generic success statement is not confirmation of a particular command without a recorded link. If confirmation is missing, say so. Historical evidence does not verify current state.
+- Default portable helper searches return the full literal match plus up to 100 source characters per side. Explicit `--context` retains the previous total-character behavior. Unicode case-folded match boundaries map back to the original text. Native Pocket already provided 120 characters per side; that is not new in this release.
 
 ## References
 

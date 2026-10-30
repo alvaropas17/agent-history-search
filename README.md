@@ -266,8 +266,13 @@ native `history_search` with `toolCalls` first.
 - `incomplete` and `notes`: limits reached or files skipped. Do not read an incomplete
   empty result as "it never happened".
 - `coverage`: order, scope and freshness. There is no index, so nothing goes stale.
-- `--context`: maximum characters per result in text mode, and per field (arguments,
-  result) in tool mode. Snippets include the original offset and length.
+- Without `--context`, portable helper searches return the full literal match plus
+  up to 100 source characters per side, with Unicode-aware source boundaries.
+  Explicit `--context` retains the previous maximum total characters per result
+  in text mode and per field (arguments, result) in tool mode. Reads without a
+  query retain the 400-character default. Snippets include original offsets and lengths.
+  Native Pocket already provided 120 characters per side; this is not a new Pocket feature.
+- See [CHANGELOG.md](CHANGELOG.md) for the v0.4.0 release changes.
 - `list` order: Pi, omp, Codex and Claude Code by file modification time; OpenCode by
   `time_updated`; Pi Pocket by the latest entry with text, not by the app's catalogue.
 - `expand`/`read` return the most recent text first, bounded; they never dump a whole

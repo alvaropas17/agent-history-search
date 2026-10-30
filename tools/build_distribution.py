@@ -4,6 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 import zipfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agent_history import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
@@ -21,6 +25,8 @@ FILES = (
     'tests/test_tool_calls.py',
     'agent_history/sqlite_readers.py',
     'README.md',
+    'CHANGELOG.md',
+    'tests/test_literal_context.py',
     'NOTICE.md',
     'LICENSE',
     'docs/ADAPTERS.md',
@@ -54,7 +60,7 @@ def build(output, root=ROOT):
             raise ValueError('Missing or symlinked distribution source: ' + name)
         payloads[name] = path.read_bytes()
     manifest = {
-        'name': 'agent-history-search', 'version': '0.3.0',
+        'name': 'agent-history-search', 'version': __version__,
         'license_state': 'MIT approved',
         'license': 'MIT',
         'copyright': 'Copyright (c) 2026 alvaropas17',
@@ -77,7 +83,7 @@ def build(output, root=ROOT):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ROOT / 'dist' / 'agent-history-search-0.3.0.zip')
+    parser.add_argument('--output', type=Path, default=ROOT / 'dist' / f'agent-history-search-{__version__}.zip')
     args = parser.parse_args()
     print(json.dumps(build(args.output)))
 
