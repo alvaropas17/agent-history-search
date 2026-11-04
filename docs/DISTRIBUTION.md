@@ -12,6 +12,8 @@ The builder uses a closed list of files; it does not pack whatever happens to be
 
 `python -B tools/verify_distribution.py ZIP` checks an archive against its manifest and checksum.
 
+The search window, its demo data and its image are in the ZIP. The window builds its index only on the machine where it runs; no index is ever packed.
+
 The build runs no history queries and uses no network. `tools/inspect_schema.py` and `tools/snapshot_scaffold.py` are maintainer tools and are not in the ZIP. `tools/sqlite_snapshot.py` is included: the owner runs it to copy a live SQLite database into a snapshot without a `-wal` file. The tests only generate temporary synthetic fixtures.
 
 ## AI-guided setup and Pocket

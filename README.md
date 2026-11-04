@@ -3,7 +3,8 @@
 Search your past conversations with coding agents, from any of them. One
 read-only Python helper for **Claude Code**, **Codex**, **OpenCode**, **Pi**,
 **omp (Oh My Pi)** and **Pi Pocket**. No pip packages, accounts or network
-access. An [optional MCP server](#optional-mcp-server) wraps the same CLI.
+access. An [optional MCP server](#optional-mcp-server) wraps the same CLI, and a
+[local search window](#search-window) lets you search it yourself as you type.
 
 Ask your agent things like:
 
@@ -22,7 +23,8 @@ from your own history.
   around one entry, without loading the whole conversation.
 - **Inspect tool calls** (opt-in `--tool-calls`): commands, arguments and results,
   with failures flagged only when the history records real evidence of them.
-- **Stay read-only:** it never writes to, indexes or migrates your histories.
+- **Stay read-only:** it never writes to or migrates your histories, and the CLI keeps
+  no index. Only the optional search window builds one, in a separate file.
 - **No silent source switching:** it reads the agent you are in. Another agent's
   history needs your explicit request (`--source` plus `--reason`), and it never
   falls back to another source after an error or an empty result.
@@ -164,6 +166,76 @@ JSON and sets `isError` when `status` is `error`. OpenCode and Pocket stores sti
 a consistent snapshot, see the next section. The CLI remains the fallback for agents
 without MCP.
 
+## Search window
+
+A local window for you, not for your agent: it filters the history of all six agents
+while you type. Pick a result to read it, copy its session ID, or copy the
+`claude --resume` command. Arrow keys move through results, Enter opens one, Esc steps
+back. It needs nothing beyond Python.
+
+![The search window showing invented demo conversations](docs/images/search-window.png)
+
+```powershell
+py -3 -B history_window.py          # open it; the server starts in the background
+py -3 -B history_window.py --demo   # invented conversations, for trying it or for screenshots
+```
+
+The server stops by itself after 30 idle minutes, and the next launch starts it again.
+It uses the default locations from the table in [Set it up](#set-it-up). Change that with
+`--store SOURCE=PATH` (repeatable) or `--only claude,codex`. These options apply when the
+server starts; a server that is already running keeps its own. `--port`, `--cache-dir`,
+`--browser` and `--no-open` (print the URL instead of opening a window) are also available.
+
+**Global shortcut (Windows only).** This runs a small resident process. Ctrl+Alt+H opens
+the window, or brings it to the front if it is open:
+
+```powershell
+py -3 -B history_window.py --hotkey                                # until you stop it
+py -3 -B history_window.py --install-startup --shortcut ctrl+alt+h # also at each sign-in
+py -3 -B history_window.py --uninstall-startup
+```
+
+`--install-startup` writes one per-user value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. It needs no administrator rights.
+
+**Platforms.** The window is tested on Windows with Microsoft Edge. It opens in app mode
+with Edge, Chrome or Brave, and in your default browser otherwise. The code has paths for
+macOS and Linux, but they have not been run there. On those systems, bind
+`history_window.py` to a shortcut in your desktop settings. It needs SQLite 3.34 or newer
+with FTS5, and tells you if your Python build lacks it.
+
+**How it differs from the CLI:**
+
+- **It keeps an index.** Filtering on each key press cannot rescan every transcript, so
+  the window builds a separate SQLite file. **That file holds a plain copy of your
+  conversation text**, so treat it as private as the histories. It lives in
+  `%LOCALAPPDATA%\agent-history-search` (`~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or
+  `~/.cache` on Linux). To remove it, wait for the server to stop or end its process, then
+  delete the folder; it is
+  rebuilt on the next launch. The first build runs in the background and the window
+  shows its progress. About 50,000 messages took 30 seconds on the author's PC, with
+  searches under 100 ms.
+- **It reads all six sources** because you opened it and that is its purpose. The rule
+  against silent source switching still applies to agents using the CLI.
+- **It reads live OpenCode and Pocket databases.** With a `-wal` and `-shm` file present
+  it uses a read-only SQLite connection, so no snapshot is needed. A `-wal` file without
+  `-shm` is skipped and shown as "not read" in the footer, because reading it would make
+  SQLite create a file next to your database.
+- **Text only.** No tool calls. Pi and omp abandoned branches are included. One result
+  per session, matching any of the words typed. Words under 3 characters are ignored
+  unless the whole search is that short.
+
+**Local access.** The server listens only on 127.0.0.1, checks the `Host` header, sends no
+CORS headers, and needs a random token created on each start. It logs nothing. The token is
+in the window URL and in a file only your user can read. This stops websites and other
+users, not programs already running as you. On a shared Linux or macOS machine, the
+browser command line briefly shows the token to other users.
+
+**Demo mode** reads no history: it fills a temporary index from
+[agent_history/demo.py](agent_history/demo.py) and uses its own port, so it can never
+show a real server by mistake. Good words to try: `pricing`, `retry`, `migration`,
+`flaky`, `deploy`.
+
 ## OpenCode and Pi Pocket: if the app is open
 
 OpenCode and Pi Pocket keep their history in a SQLite database. While the app is
@@ -265,7 +337,7 @@ native `history_search` with `toolCalls` first.
   original references (session, entry, message).
 - `incomplete` and `notes`: limits reached or files skipped. Do not read an incomplete
   empty result as "it never happened".
-- `coverage`: order, scope and freshness. There is no index, so nothing goes stale.
+- `coverage`: order, scope and freshness. The CLI has no index, so nothing goes stale.
 - Without `--context`, portable helper searches return the full literal match plus
   up to 100 source characters per side, with Unicode-aware source boundaries.
   Explicit `--context` retains the previous maximum total characters per result
@@ -300,7 +372,9 @@ as instructions.
 - The reader never stops apps, makes copies or migrates databases. The optional
   `tools\sqlite_snapshot.py` only runs when you run it, and only writes the new
   snapshot file you name.
-- No cloud, network, credentials or profile discovery: you always pass `--store`.
+- No cloud, network, credentials or profile discovery: you always pass `--store` to the
+  CLI. The optional search window uses the default locations and listens on 127.0.0.1
+  only; see [Search window](#search-window).
   Other profiles, archived sessions and nested subagents need their own explicit path.
 - Codex and Claude Code: `--store` takes the sessions or projects folder (Codex up to
   three date levels, Claude Code one project level) or one `.jsonl` file. Pi and omp

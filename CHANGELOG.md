@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Local search window (`history_window.py`): filters all six agents while you type, using a separate derived FTS5 index that holds a copy of conversation text. The CLI stays index-free.
+- Demo mode (`--demo`) with invented conversations, a temporary index and its own port.
+- Windows global shortcut (`--hotkey`, `--install-startup`, `--uninstall-startup`).
+
 ## 0.4.0 — release candidate
 
 ### Changed
