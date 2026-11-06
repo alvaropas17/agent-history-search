@@ -49,6 +49,19 @@ ChatGPT cloud history. No connector, account, or authentication is installed by
 this package. Local listing remains a bounded transcript scan, not a cloud
 metadata index.
 
+## Experimental Rust desktop shell
+
+[`rust-history-box/`](rust-history-box/README.md) contains a separate Windows Rust
+port of the author's local Ctrl+Alt+H search application: hotkey, Edge app launcher,
+loopback HTTP service, read-only SQLite queries and reference expansion.
+
+This is **not a replacement for the portable Python search window below** and is
+not included in the Python distribution. It currently expects the author's legacy
+`history-index-v2.sqlite` schema and shared Python indexer, which are not installed
+by this Rust project. Index refresh therefore still needs Python. It does not
+register startup automatically or change the existing Ctrl+Alt+H registration.
+See its README for build instructions, dependency limits and fixture-only tests.
+
 ## Requirements
 
 - Windows 10 or 11 (the platform it is tested on).
