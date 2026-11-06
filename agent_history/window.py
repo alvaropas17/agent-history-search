@@ -8,6 +8,7 @@ The token file is readable by the same user, so this protects against other site
 other users, not against programs already running as you.
 """
 import argparse
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -23,6 +24,7 @@ import tempfile
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
+import urllib.error
 import urllib.request
 import webbrowser
 
@@ -32,6 +34,7 @@ from .index import Index, check_sqlite, default_stores
 
 PORT = 47620
 DEMO_PORT = 47621  # Separate on purpose: a demo must never open a running real server.
+PROTOCOL = 'agent-history-window-v2'
 TITLE = 'Agent History Search'
 DEMO_TITLE = 'Agent History Search (demo)'
 IDLE_SECONDS = 30 * 60
@@ -61,11 +64,25 @@ def token_path(folder, port):
     return Path(folder) / f'window-{port}.token'
 
 
+def configuration_id(args, folder, port):
+    stores = {} if args.demo else selected_stores(args)
+    payload = {'protocol': PROTOCOL, 'demo': args.demo, 'port': port,
+               'cache': str(Path(folder).expanduser().resolve()),
+               'stores': {name: str(Path(path).expanduser().resolve())
+                          for name, path in sorted(stores.items())}}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
 def write_private(path, value):
-    Path(path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(handle, 'w', encoding='utf-8') as stream:
-        stream.write(value)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    handle, temporary = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(handle, 'w', encoding='utf-8') as stream:
+            stream.write(value)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def words_of(query):
@@ -77,8 +94,9 @@ def words_of(query):
 class App:
     """Search and status. Indexing runs beside searches, never in front of them."""
 
-    def __init__(self, index, demo=False, update_every=UPDATE_EVERY):
+    def __init__(self, index, demo=False, update_every=UPDATE_EVERY, identity=None):
         self.index = index
+        self.identity = identity or hashlib.sha256(str(index.path.resolve()).encode()).hexdigest()
         self.demo = demo
         self.update_every = update_every
         self.title = DEMO_TITLE if demo else TITLE
@@ -154,6 +172,10 @@ class WindowServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(5)
+
     server_version = 'agent-history-window'
     sys_version = ''
     protocol_version = 'HTTP/1.0'
@@ -171,26 +193,49 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Content-Security-Policy', CSP)
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
+            pass
 
     def deny(self):
         self.reply(403, '{"error":"forbidden"}')
 
     def do_GET(self):
         server = self.server
-        if self.headers.get('Host') != server.expected_host:
+        origin = 'http://' + server.expected_host
+        if (self.headers.get_all('Host') != [server.expected_host]
+                or self.headers.get('Origin') not in (None, origin)
+                or self.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site')):
             return self.deny()
+        if len(self.path) > 8192 or not self.path.startswith('/') or self.path.startswith('//'):
+            return self.reply(400, '{"error":"invalid_request"}')
         url = urlparse(self.path)
-        params = parse_qs(url.query)
-        given = self.headers.get('X-Token') or params.get('t', [''])[0]
-        if not hmac.compare_digest(given.encode('utf-8'), server.token.encode('utf-8')):
-            return self.deny()
+        try:
+            params = parse_qs(url.query, keep_blank_values=True, max_num_fields=8)
+            if any(len(value) != 1 for value in params.values()):
+                raise ValueError('duplicate_parameter')
+        except ValueError:
+            return self.reply(400, '{"error":"invalid_parameters"}')
         app = server.app
+        if url.path == '/':
+            # The shell has no token or private data. The launcher passes its token as a fragment.
+            return self.reply(200, app.page, 'text/html; charset=utf-8')
+        if url.path == '/api/health':
+            nonce = params.get('nonce', [''])[0]
+            if (set(params) != {'nonce'} or len(nonce) != 48
+                    or any(character not in '0123456789abcdef' for character in nonce)):
+                return self.reply(400, '{"error":"invalid_challenge"}')
+            message = f'{PROTOCOL}:{app.identity}:{nonce}'.encode()
+            proof = hmac.new(server.token.encode(), message, hashlib.sha256).hexdigest()
+            return self.reply(200, json.dumps({'protocol': PROTOCOL, 'identity': app.identity,
+                                               'proof': proof}))
+        given = self.headers.get('X-Token', '')
+        if len(given) > 128 or not hmac.compare_digest(given.encode('utf-8'), server.token.encode('utf-8')):
+            return self.deny()
         app.last_request = time.monotonic()
         routes = {'/api/search': app.search, '/api/expand': app.expand}
         try:
-            if url.path == '/':
-                return self.reply(200, app.page, 'text/html; charset=utf-8')
             if url.path == '/api/ping':
                 return self.reply(200, '{"ok":true}')
             if url.path == '/api/status':
@@ -312,21 +357,41 @@ def open_window(url, browser=None):
 
 def read_token(path):
     try:
-        return Path(path).read_text(encoding='utf-8').strip()
-    except OSError:
-        return ''
+        if Path(path).stat().st_size <= 128:
+            return Path(path).read_text(encoding='utf-8').strip()
+    except (OSError, UnicodeError):
+        pass
+    return ''
 
 
-def alive(port, token):
-    if not token:
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        return None
+
+
+def alive(port, token, identity=None):
+    if not token or len(token) > 128:
         return False
-    request = urllib.request.Request(f'http://127.0.0.1:{port}/api/ping', headers={'X-Token': token})
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    nonce = secrets.token_hex(24)
+    # Do not give an unrelated listener the token while checking its identity.
+    request = urllib.request.Request(f'http://127.0.0.1:{port}/api/health?nonce={nonce}')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
-        with opener.open(request, timeout=1.5) as response:
-            return response.status == 200
-    except OSError:
-        return False
+        with opener.open(request, timeout=0.3) as response:
+            answer = json.loads(response.read(4097))
+        if (not isinstance(answer, dict) or answer.get('protocol') != PROTOCOL
+                or not isinstance(answer.get('identity'), str)
+                or identity is not None and answer['identity'] != identity
+                or not isinstance(answer.get('proof'), str)):
+            return False
+        message = f"{PROTOCOL}:{answer['identity']}:{nonce}".encode()
+        expected = hmac.new(token.encode(), message, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(answer['proof'].encode(), expected.encode())
+    except urllib.error.HTTPError as exc:
+        exc.close()
+    except (OSError, ValueError):
+        pass
+    return False
 
 
 def serve(args, port, folder):
@@ -338,7 +403,7 @@ def serve(args, port, folder):
         index.add_messages(messages())
     else:
         index = Index(Path(folder) / 'index-v1.sqlite', selected_stores(args))
-    app = App(index, demo=args.demo)
+    app = App(index, demo=args.demo, identity=configuration_id(args, folder, port))
     token = secrets.token_urlsafe(24)
     try:
         try:
@@ -360,7 +425,8 @@ def serve(args, port, folder):
         finally:
             server.server_close()
             try:
-                path.unlink()
+                if read_token(path) == token:
+                    path.unlink()
             except OSError:
                 pass
         return 0
@@ -371,16 +437,17 @@ def serve(args, port, folder):
 
 def launch(args, argv, port, folder):
     path = token_path(folder, port)
-    if not alive(port, read_token(path)):
+    identity = configuration_id(args, folder, port)
+    if not alive(port, read_token(path), identity):
         command = [str(background_python()), '-B', str(ENTRY), '--serve', *forwarded(argv)]
         subprocess.Popen(command, **detached())
         deadline = time.monotonic() + START_TIMEOUT
-        while not alive(port, read_token(path)):
+        while not alive(port, read_token(path), identity):
             if time.monotonic() >= deadline:
                 print(f'The search server did not start. Is port {port} in use? Try --port.', file=sys.stderr)
                 return 1
             time.sleep(0.1)
-    url = f'http://127.0.0.1:{port}/?t={read_token(path)}'
+    url = f'http://127.0.0.1:{port}/#{read_token(path)}'
     if args.no_open:
         print(url)
     else:
@@ -397,9 +464,14 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.demo and (args.store or args.only):
         p.error('--demo reads no history; remove --store and --only')
+    port = args.port if args.port is not None else (DEMO_PORT if args.demo else PORT)
+    if not 1024 <= port <= 65535:
+        p.error('--port must be in 1024..65535')
     if args.hotkey or args.install_startup or args.uninstall_startup:
         from . import hotkey
         try:
+            if not args.uninstall_startup:
+                selected_stores(args)
             if args.install_startup:
                 return hotkey.install_startup(argv)
             if args.uninstall_startup:
@@ -408,7 +480,6 @@ def main(argv=None):
         except HistoryError as exc:
             print(exc, file=sys.stderr)
             return 2
-    port = args.port or (DEMO_PORT if args.demo else PORT)
     folder = args.cache_dir or cache_dir()
     try:
         check_sqlite()

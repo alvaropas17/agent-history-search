@@ -44,13 +44,24 @@ def run(shortcut, title, launch_args):
     user32 = ctypes.WinDLL('user32', use_last_error=True)
     callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
     user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
     user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+    user32.RegisterHotKey.restype = wintypes.BOOL
+    user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.UnregisterHotKey.restype = wintypes.BOOL
     user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+    # BOOL is signed here: -1 is an error, 0 is WM_QUIT, and positive values are messages.
+    user32.GetMessageW.restype = ctypes.c_int
 
     def find_window():
         found = []
@@ -81,20 +92,42 @@ def run(shortcut, title, launch_args):
     if not user32.RegisterHotKey(None, 1, flags, key):
         print('The shortcut is taken by another program or a running instance.', file=sys.stderr)
         return 1
-    message = wintypes.MSG()
-    while user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
-        if message.message == WM_HOTKEY:
-            try:
-                on_hotkey()
-            except OSError:
-                pass
+    try:
+        message = wintypes.MSG()
+        while True:
+            status = user32.GetMessageW(ctypes.byref(message), None, 0, 0)
+            if status == -1:
+                raise HistoryError(f'hotkey_message_loop_failed:winerror_{ctypes.get_last_error()}')
+            if status == 0:
+                break
+            if message.message == WM_HOTKEY:
+                try:
+                    on_hotkey()
+                except OSError:
+                    pass
+    finally:
+        user32.UnregisterHotKey(None, 1)
     return 0
 
 
 def startup_command(argv):
-    from .window import background_python
-    kept = [item for item in argv if item not in ('--install-startup', '--uninstall-startup', '--hotkey')]
-    return subprocess.list2cmdline([str(background_python()), '-B', str(ENTRY), '--hotkey', *kept])
+    from .window import background_python, parser
+    # Parse before serializing: argparse also accepts abbreviated option names. Never
+    # persist a startup-install/remove action, a server-only action, or --no-open.
+    args = parser().parse_args(argv)
+    kept = ['--hotkey', '--shortcut', args.shortcut]
+    if args.demo:
+        kept.append('--demo')
+    if args.port is not None:
+        kept.extend(['--port', str(args.port)])
+    for source, path in args.store:
+        kept.extend(['--store', f'{source}={path}'])
+    for option, value in (('--only', args.only), ('--cache-dir', args.cache_dir),
+                          ('--browser', args.browser)):
+        if value is not None:
+            # The equals form preserves values that begin with a dash.
+            kept.append(f'{option}={value}')
+    return subprocess.list2cmdline([str(background_python()), '-B', str(ENTRY), *kept])
 
 
 def install_startup(argv, registry=None):

@@ -2,9 +2,10 @@
 
 Search your past conversations with coding agents, from any of them. One
 read-only Python helper for **Claude Code**, **Codex**, **OpenCode**, **Pi**,
-**omp (Oh My Pi)** and **Pi Pocket**. No pip packages, accounts or network
-access. An [optional MCP server](#optional-mcp-server) wraps the same CLI, and a
-[local search window](#search-window) lets you search it yourself as you type.
+**omp (Oh My Pi)** and **Pi Pocket**. The CLI needs no pip packages, accounts or
+network access. An [optional MCP server](#optional-mcp-server) wraps the same CLI,
+and an optional [local search window](#search-window) lets you search it yourself
+as you type through a loopback-only service.
 
 Ask your agent things like:
 
@@ -52,6 +53,11 @@ metadata index.
 
 ## Set it up
 
+For **Codex and Claude Code**, prefer the included [MCP interface](#optional-mcp-server).
+For **OpenCode, Pi, omp and Pi Pocket**, use the CLI with the package skill or local
+instructions. Both interfaces use the same read-only worker. The desktop search
+window is separate and optional; it is not required for agent integration.
+
 Setup is the same six steps whoever does them. Do them yourself, or let your AI do
 them for you: download the package (step 1), open your usual coding agent with access
 to that folder, and paste the prompt from
@@ -90,7 +96,9 @@ check each step against this list.
    py -3 -B history_search.py search --host claude --store "$HOME\.claude\projects" --query "pricing" --limit 5
    ```
 
-5. **Teach your agent to use it.** Expose the package's `skill\` folder under the name
+5. **Configure the chosen interface.** For Codex/Claude Code, follow the MCP section
+   below with a fixed host and only the stores you approve. Back up existing
+   configuration and preserve unrelated servers. For the CLI route, expose the package's `skill\` folder under the name
    `agent-history-search` in a folder your agent loads skills from. A junction avoids
    copying, so updates to the package reach the skill:
 
@@ -120,7 +128,9 @@ check each step against this list.
    skill folders can change between versions. More detail per agent is in
    [docs/ADAPTERS.md](docs/ADAPTERS.md).
 6. **Check it in a new session.** Ask: "Use Agent History Search to list my latest
-   conversation and tell me its session ID." Make sure the agent actually runs the CLI.
+   conversation and tell me its session ID." Verify a real call through the interface
+   you configured: the MCP tool for MCP setup, or the CLI for helper setup. Running
+   the worker alone does not verify MCP wiring. Report failures before changing modes.
 
 ## Optional MCP server
 
@@ -182,8 +192,9 @@ py -3 -B history_window.py --demo   # invented conversations, for trying it or f
 
 The server stops by itself after 30 idle minutes, and the next launch starts it again.
 It uses the default locations from the table in [Set it up](#set-it-up). Change that with
-`--store SOURCE=PATH` (repeatable) or `--only claude,codex`. These options apply when the
-server starts; a server that is already running keeps its own. `--port`, `--cache-dir`,
+`--store SOURCE=PATH` (repeatable) or `--only claude,codex`. The launcher reuses a server only when its source selection, store paths, cache,
+port and demo mode match. If another configuration already owns the port, stop
+that server yourself or select another port; the launcher never silently reuses it. `--port`, `--cache-dir`,
 `--browser` and `--no-open` (print the URL instead of opening a window) are also available.
 
 **Global shortcut (Windows only).** This runs a small resident process. Ctrl+Alt+H opens
@@ -226,10 +237,17 @@ with FTS5, and tells you if your Python build lacks it.
   unless the whole search is that short.
 
 **Local access.** The server listens only on 127.0.0.1, checks the `Host` header, sends no
-CORS headers, and needs a random token created on each start. It logs nothing. The token is
-in the window URL and in a file only your user can read. This stops websites and other
-users, not programs already running as you. On a shared Linux or macOS machine, the
-browser command line briefly shows the token to other users.
+CORS headers, and needs a random token created on each start. It logs nothing. The launcher passes the token in a URL fragment, not a query parameter. The page
+removes it from the address bar and sends it in a custom header for history requests.
+Host and Origin checks reject unexpected browser origins. A challenge response
+checks service identity before the launcher exposes the token.
+
+The token and index live in the selected cache folder. POSIX token files use mode
+0600; Windows uses the folder's inherited ACL, which the program does not change.
+Use a private per-user folder, or choose one explicitly with `--cache-dir` (for
+example on D:). These controls do not protect against programs running as you.
+Browser process arguments and session storage can still expose a launch token
+to local software. Do not share launch URLs or cache files.
 
 **Demo mode** reads no history: it fills a temporary index from
 [agent_history/demo.py](agent_history/demo.py) and uses its own port, so it can never

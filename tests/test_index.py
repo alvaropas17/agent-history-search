@@ -1,13 +1,14 @@
 """The derived index: all formats, incremental updates, and originals left untouched."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
 
 from agent_history.core import HistoryError
-from agent_history.index import Index, default_stores, open_store
+from agent_history.index import Index, default_stores, digest, open_store
 
 
 def jsonl(path, rows, end='\n'):
@@ -173,6 +174,315 @@ class Updates(Case):
         jsonl(file, [{'type': 'custom-title', 'customTitle': 'Login work'}])
         index.update()
         self.assertEqual(index.search(['login'])[0]['title'], 'Login work')
+
+
+class PocketTitles(Case):
+    def pocket(self, name='pocket.sqlite', items=None, wal=False):
+        path = self.stores / name
+        con = sqlite3.connect(path)
+        self.addCleanup(con.close)
+        if wal:
+            con.execute('PRAGMA journal_mode=WAL')
+            con.execute('PRAGMA wal_autocheckpoint=0')
+        con.executescript('''
+            CREATE TABLE entries(id INTEGER PRIMARY KEY, conversation_id INTEGER, record TEXT);
+            CREATE TABLE documents(id INTEGER PRIMARY KEY, kind TEXT);
+            CREATE TABLE document_revisions(document_id INTEGER, seq INTEGER, kind TEXT, content TEXT);
+        ''')
+        con.execute('INSERT INTO entries VALUES(1,7,?)',
+                    (json.dumps({'model': [{'role': 'user', 'content': 'ordinary conversation'}]}),))
+        con.execute('INSERT INTO documents VALUES(1,?)', ('"pocket.sessions"',))
+        values = {'7': {'title': 'Original kingfisher title', 'createdAt': 1700000000000}} if items is None else items
+        con.execute('INSERT INTO document_revisions VALUES(1,1,?,?)',
+                    ('base', json.dumps({'items': values})))
+        con.commit()
+        if not wal:
+            con.close()
+        return path, con
+
+    def revision(self, path, sequence, data, kind='delta'):
+        con = sqlite3.connect(path)
+        try:
+            con.execute('INSERT INTO document_revisions VALUES(1,?,?,?)',
+                        (sequence, kind, json.dumps(data)))
+            con.commit()
+        finally:
+            con.close()
+
+    def test_replays_base_field_and_item_deltas_and_searches_title_only_sessions(self):
+        path, _con = self.pocket(items={
+            '7': {'title': 'Old sandpiper'}, '8': {'title': 'Remote curlew catalogue'}})
+        self.revision(path, 2, [
+            ['s', ['items', '7', 'title'], 'Current sandpiper catalogue'],
+            ['s', ['items', '7', 'updatedAt'], 1700000001000],
+            ['s', ['items', '9'], {'title': 'Added osprey catalogue'}],
+            ['s', ['updatedAt'], 1700000001000]])
+        before = digests(self.stores)
+        index = self.index(pocket=path)
+        self.assertEqual(index.update(), {'pocket': 4})
+        self.assertEqual(index.skipped, {})
+        self.assertEqual(index.search(['Old sandpiper']), [])
+        hit = index.search(['Current sandpiper'])[0]
+        self.assertEqual((hit['host'], hit['session'], hit['role']), ('pocket', '7', 'title'))
+        self.assertEqual(hit['timestamp'], 1700000001000)
+        self.assertEqual(index.expand(hit['ref'])['text'], 'Current sandpiper catalogue')
+        self.assertEqual(index.search(['ordinary'])[0]['title'], 'Current sandpiper catalogue')
+        self.assertEqual(index.search(['curlew'])[0]['session'], '8')
+        self.assertEqual(index.search(['osprey'])[0]['session'], '9')
+        self.assertEqual(digests(self.stores), before)
+
+    def test_rename_replaces_searchable_text_and_invalidates_the_old_reference(self):
+        path, _con = self.pocket()
+        index = self.index(pocket=path)
+        index.update()
+        ref = index.search(['kingfisher'])[0]['ref']
+        self.assertEqual(index.update(), {'pocket': 0})
+        self.assertEqual(index.search(['kingfisher'])[0]['ref'], ref)
+        self.revision(path, 2, [['s', ['items', '7', 'title'], 'Renamed albatross title']])
+        index.update()
+        self.assertEqual(index.search(['kingfisher']), [])
+        hit = index.search(['albatross'])[0]
+        self.assertEqual(hit['title'], 'Renamed albatross title')
+        self.assertEqual(index.search(['ordinary'])[0]['title'], 'Renamed albatross title')
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            index.expand(ref)
+        self.assertEqual(index.expand(hit['ref'])['text'], 'Renamed albatross title')
+
+    def test_item_removal_restores_the_first_user_line_fallback(self):
+        path, _con = self.pocket()
+        index = self.index(pocket=path)
+        index.update()
+        self.revision(path, 2, [['s', ['items', '7'], None]])
+        index.update()
+        self.assertEqual(index.search(['kingfisher']), [])
+        hit = index.search(['ordinary'])[0]
+        self.assertEqual(hit['title'], 'ordinary conversation')
+        self.assertEqual(hit['role'], 'user')
+
+    def test_new_base_and_items_replacement_remove_stale_title_only_sessions(self):
+        path, _con = self.pocket(items={'8': {'title': 'Stale tern catalogue'}})
+        index = self.index(pocket=path)
+        index.update()
+        self.revision(path, 2, {'items': {'9': {'title': 'Fresh gull catalogue'}}}, kind='base')
+        index.update()
+        self.assertEqual(index.search(['tern']), [])
+        self.assertEqual(index.search(['gull'])[0]['session'], '9')
+        self.revision(path, 3, [['s', ['items'], {'10': {'title': 'Current lark catalogue'}}]])
+        index.update()
+        self.assertEqual(index.search(['gull']), [])
+        self.assertEqual(index.search(['lark'])[0]['session'], '10')
+
+    def test_invalid_title_revision_is_reported_as_a_skipped_source(self):
+        path, _con = self.pocket()
+        self.revision(path, 2, [['unknown', ['items'], {}]])
+        index = self.index(pocket=path)
+        self.assertEqual(index.update(), {})
+        self.assertIn('unsupported_pocket_title_operation', index.skipped['pocket'])
+        self.assertEqual(index.search(['kingfisher']), [])
+
+    def test_live_wal_title_replay_sees_uncheckpointed_commits(self):
+        path, writer = self.pocket(wal=True)
+        index = self.index(pocket=path)
+        index.update()
+        writer.execute('INSERT INTO document_revisions VALUES(1,2,?,?)',
+                       ('delta', json.dumps([['s', ['items', '7', 'title'], 'Live wagtail catalogue']])))
+        writer.commit()
+        self.assertTrue(Path(str(path) + '-wal').exists())
+        self.assertTrue(Path(str(path) + '-shm').exists())
+        before = {p: p.read_bytes() for p in (path, Path(str(path) + '-wal'))}
+        index.update()
+        self.assertEqual(index.skipped, {})
+        self.assertEqual(index.search(['kingfisher']), [])
+        self.assertEqual(index.search(['wagtail'])[0]['title'], 'Live wagtail catalogue')
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_pocket_cache_and_titles_are_isolated_by_store(self):
+        private, _con = self.pocket('private.sqlite', {'7': {'title': 'Private nightjar catalogue'}})
+        allowed, _con = self.pocket('allowed.sqlite', {'7': {'title': 'Allowed goldfinch catalogue'}})
+        first = self.index(pocket=private)
+        first.update()
+        private_ref = first.search(['ordinary'])[0]['ref']
+        second = self.index(pocket=allowed)
+        second.update()
+        self.assertEqual(second.search(['nightjar']), [])
+        self.assertEqual(second.search(['ordinary'])[0]['title'], 'Allowed goldfinch catalogue')
+        self.assertEqual(second.counts(), {'pocket': 2})
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            second.expand(private_ref)
+        self.assertEqual(first.search(['ordinary'])[0]['title'], 'Private nightjar catalogue')
+        self.assertEqual(first.counts(), {'pocket': 2})
+
+
+class Authorization(Case):
+    def test_cached_hosts_are_hidden_from_search_counts_and_expansion(self):
+        claude_store = self.stores / 'claude'
+        pi_store = self.stores / 'pi'
+        jsonl(claude_store / 'a.jsonl', [claude('user', 'authorized zebra')])
+        jsonl(pi_store / 'a.jsonl', [
+            {'type': 'session', 'id': 'private-pi'},
+            {'type': 'message', 'message': {'role': 'user', 'content': 'zz private narwhal'}}])
+        broad = self.index(claude=claude_store, pi=pi_store)
+        broad.update()
+        private_ref = broad.search(['narwhal'])[0]['ref']
+        narrow = self.index(claude=claude_store)
+        self.assertEqual(narrow.search(['narwhal']), [])
+        self.assertEqual(narrow.search(['zz']), [])
+        self.assertEqual(narrow.counts(), {'claude': 1})
+        with self.assertRaises(HistoryError):
+            narrow.search(['narwhal'], host='pi')
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            narrow.expand(private_ref)
+        self.assertEqual(len(narrow.search(['zebra'])), 1)
+
+    def test_same_host_store_switch_does_not_leak_rows_titles_or_delete_other_scopes(self):
+        private, allowed = self.stores / 'private', self.stores / 'allowed'
+        jsonl(private / 'a.jsonl', [claude('user', 'zz classified nightingale', session='same'),
+                                 {'type': 'custom-title', 'customTitle': 'Private title'}])
+        jsonl(allowed / 'a.jsonl', [claude('user', 'visible goldcrest', session='same'),
+                                 {'type': 'custom-title', 'customTitle': 'Allowed title'}])
+        first = self.index(claude=private)
+        first.update()
+        private_ref = first.search(['classified'])[0]['ref']
+        second = self.index(claude=allowed)
+        self.assertEqual(second.search(['classified']), [])
+        self.assertEqual(second.counts(), {})
+        second.update()
+        second.update()  # Cleanup must not delete the other configuration's sources.
+        self.assertEqual(second.search(['classified']), [])
+        self.assertEqual(second.search(['zz']), [])
+        self.assertEqual(second.search(['goldcrest'])[0]['title'], 'Allowed title')
+        self.assertEqual(second.counts(), {'claude': 1})
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            second.expand(private_ref)
+        first.update()
+        self.assertEqual(first.search(['nightingale'])[0]['title'], 'Private title')
+        self.assertEqual(first.counts(), {'claude': 1})
+
+    def test_changing_the_configured_store_revokes_cached_references(self):
+        private, allowed = self.stores / 'private', self.stores / 'allowed'
+        jsonl(private / 'a.jsonl', [claude('user', 'private falcon')])
+        jsonl(allowed / 'a.jsonl', [claude('user', 'allowed swallow')])
+        index = self.index(claude=private)
+        index.update()
+        ref = index.search(['falcon'])[0]['ref']
+        index.stores['claude'] = allowed
+        self.assertEqual(index.search(['falcon']), [])
+        self.assertEqual(index.counts(), {})
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            index.expand(ref)
+        index.update()
+        self.assertEqual(index.search(['swallow'])[0]['title'], 'allowed swallow')
+        self.assertEqual(index.counts(), {'claude': 1})
+
+    def test_legacy_unscoped_rows_and_titles_are_not_authorization_evidence(self):
+        store = self.stores / 'claude'
+        jsonl(store / 'a.jsonl', [claude('user', 'current text')])
+        index = self.index(claude=store)
+        con = index.writer()
+        try:
+            sid = con.execute('INSERT INTO src(key,host) VALUES(?,?)',
+                              (str(store / 'a.jsonl'), 'claude')).lastrowid
+            body = 'legacy secret text'
+            row = con.execute('INSERT INTO docs(host,sess,role,ts,src,ext,text) VALUES(?,?,?,?,?,?,?)',
+                              ('claude', 'claude-session', 'user', 0, sid, 0, body)).lastrowid
+            con.execute('INSERT INTO titles VALUES(?,?,?)',
+                        ('claude', 'claude-session', 'Legacy secret title'))
+            con.commit()
+        finally:
+            con.close()
+        self.assertEqual(index.search(['legacy']), [])
+        self.assertEqual(index.counts(), {})
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            index.expand(f'{row}:{digest(body)}:0')
+        index.update()
+        self.assertEqual(index.search(['current'])[0]['title'], 'current text')
+        self.assertEqual(index.counts(), {'claude': 1})
+
+    def test_demo_cache_does_not_authorize_real_store_rows_or_the_reverse(self):
+        demo = self.index()
+        demo.add_messages([('claude', 'demo', 'Demo title', 'user', 1, 'demo moorhen')])
+        ref = demo.search(['moorhen'])[0]['ref']
+        store = self.stores / 'claude'
+        jsonl(store / 'a.jsonl', [claude('user', 'real linnet')])
+        configured = self.index(claude=store)
+        self.assertEqual(configured.search(['moorhen']), [])
+        with self.assertRaisesRegex(HistoryError, 'stale_reference'):
+            configured.expand(ref)
+        configured.update()
+        self.assertEqual(demo.search(['linnet']), [])
+        self.assertEqual(demo.counts(), {'claude': 1})
+        self.assertEqual(configured.counts(), {'claude': 1})
+
+
+class CachePaths(Case):
+    def test_cache_directory_inside_store_is_refused_before_files_are_created(self):
+        store = self.stores / 'claude'
+        jsonl(store / 'a.jsonl', [claude('user', 'unchanged transcript')])
+        before = digests(self.stores)
+        cache = store / 'unsafe-cache'
+        with self.assertRaisesRegex(HistoryError, 'cache_inside_history_store'):
+            Index(cache / 'index.sqlite', {'claude': store})
+        self.assertFalse(cache.exists())
+        self.assertEqual(digests(self.stores), before)
+
+    def test_directory_with_a_database_suffix_is_still_protected(self):
+        store = self.stores / 'history.db'
+        store.mkdir()
+        with self.assertRaisesRegex(HistoryError, 'cache_inside_history_store'):
+            Index(store / 'cache' / 'index.sqlite', {'claude': store})
+        self.assertFalse((store / 'cache').exists())
+
+    def test_original_database_and_its_sidecars_cannot_be_the_index(self):
+        original = self.stores / 'pocket.sqlite'
+        con = sqlite3.connect(original)
+        con.execute('CREATE TABLE original(value TEXT)')
+        con.commit()
+        con.close()
+        before = original.read_bytes()
+        for path in (original, Path(str(original) + '-wal'), Path(str(original) + '-shm')):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(HistoryError, 'cache_aliases_history_store'):
+                    Index(path, {'pocket': original})
+        self.assertEqual(original.read_bytes(), before)
+        self.assertFalse(Path(str(original) + '-wal').exists())
+        self.assertFalse(Path(str(original) + '-shm').exists())
+
+    def test_hard_link_alias_of_a_directory_store_file_is_refused(self):
+        original = self.stores / 'original.jsonl'
+        jsonl(original, [claude('user', 'do not overwrite')])
+        alias = self.root / 'alias.sqlite'
+        try:
+            os.link(original, alias)
+        except OSError as exc:
+            self.skipTest('hard links unavailable: ' + str(exc))
+        before = original.read_bytes()
+        with self.assertRaisesRegex(HistoryError, 'cache_has_hard_link_alias'):
+            Index(alias, {'claude': self.stores})
+        self.assertEqual(original.read_bytes(), before)
+
+    def test_writer_rechecks_a_changed_path_before_creating_a_directory(self):
+        store = self.stores / 'claude'
+        store.mkdir()
+        index = self.index(claude=store)
+        index.path = store / 'unsafe-cache' / 'index.sqlite'
+        with self.assertRaisesRegex(HistoryError, 'cache_inside_history_store'):
+            index.writer()
+        self.assertFalse(index.path.parent.exists())
+
+    def test_cache_sidecar_alias_of_an_original_is_refused(self):
+        original = self.stores / 'original.jsonl'
+        jsonl(original, [claude('user', 'protected data')])
+        cache = self.root / 'index.sqlite'
+        alias = Path(str(cache) + '-wal')
+        try:
+            os.link(original, alias)
+        except OSError as exc:
+            self.skipTest('hard links unavailable: ' + str(exc))
+        before = original.read_bytes()
+        with self.assertRaisesRegex(HistoryError, 'cache_has_hard_link_alias'):
+            Index(cache, {'claude': self.stores})
+        self.assertFalse(cache.exists())
+        self.assertEqual(original.read_bytes(), before)
 
 
 class Originals(Case):

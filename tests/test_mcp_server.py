@@ -79,6 +79,29 @@ class McpServer(Fixtures):
         self.assertEqual(replies[0]['error']['code'], -32601)
         self.assertEqual(replies[1]['error']['code'], -32602)
 
+    def test_invalid_types_are_tool_errors_and_server_keeps_working(self):
+        for args in ({'action': 'list', 'limit': 'five'},
+                     {'action': 'list', 'limit': True},
+                     {'action': 'search', 'query': []},
+                     {'action': 'list', 'tool_calls': 'false'},
+                     {'action': 'list', 'unknown': 1}, ['not an object'],
+                     {'action': 'search', 'query_variants': 'wrong'},
+                     {'action': 'search', 'query_variants': [False]}):
+            result = mcp_server.run_tool(args, 'pi', self.stores())
+            self.assertTrue(result['isError'], args)
+        self.assertFalse(self.call(action='list')[1])
+
+    def test_query_with_shell_characters_and_option_prefix_is_literal(self):
+        query = '--host=claude & echo "hello"; $(whoami)'
+        argv = mcp_server.build_argv({'action': 'search', 'query': query,
+                                      'query_variants': ['--another-literal']}, 'pi', self.stores())
+        parsed = cli.parser().parse_args(argv)
+        self.assertEqual(parsed.query, query)
+        self.assertEqual(parsed.query_variant, ['--another-literal'])
+        result, is_error = self.call(action='search', query=query)
+        self.assertFalse(is_error)
+        self.assertEqual(result['results'], [])
+
     def test_stdio_process_end_to_end(self):
         store = f'pi={self.pi}'
         lines = [

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -44,13 +45,15 @@ class Server(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True).start()
         self.port = self.server.server_address[1]
 
-    def call(self, path, method='GET', token=TOKEN, host=None):
+    def call(self, path, method='GET', token=TOKEN, host=None, headers=None):
         con = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
         self.addCleanup(con.close)
         con.putrequest(method, path, skip_host=True)
         con.putheader('Host', host or f'127.0.0.1:{self.port}')
         if token:
             con.putheader('X-Token', token)
+        for name, value in (headers or {}).items():
+            con.putheader(name, value)
         con.endheaders()
         response = con.getresponse()
         return response, response.read()
@@ -63,15 +66,38 @@ class Server(unittest.TestCase):
     def test_binds_only_to_loopback(self):
         self.assertEqual(self.server.server_address[0], '127.0.0.1')
 
-    def test_every_route_needs_the_token(self):
-        for path in ('/', '/api/ping', '/api/status', '/api/search?q=pricing', '/api/expand?ref=x'):
+    def test_every_history_route_needs_the_header_token(self):
+        for path in ('/api/ping', '/api/status', '/api/search?q=pricing', '/api/expand?ref=x',
+                     '/api/status?t=' + TOKEN):
             self.assertEqual(self.call(path, token=None)[0].status, 403, path)
             self.assertEqual(self.call(path, token='wrong')[0].status, 403, path)
 
-    def test_token_also_works_in_the_url_for_the_first_page_load(self):
+    def test_legacy_url_can_still_load_the_static_shell(self):
         response, body = self.call('/?t=' + TOKEN, token=None)
         self.assertEqual(response.status, 200)
         self.assertIn(b'Agent History Search (demo)', body)
+
+    def test_static_shell_contains_no_token_or_history(self):
+        response, body = self.call('/', token=None)
+        self.assertEqual(response.status, 200)
+        self.assertNotIn(TOKEN.encode(), body)
+        self.assertNotIn(b'innerHTML', body)
+        self.assertIn(b'location.hash', body)
+        self.assertIn(b'history.replaceState', body)
+
+    def test_origin_and_fetch_metadata_are_checked(self):
+        for headers in ({'Origin': 'https://attacker.invalid'}, {'Origin': 'null'},
+                        {'Sec-Fetch-Site': 'cross-site'}, {'Sec-Fetch-Site': 'same-site'}):
+            self.assertEqual(self.call('/api/status', headers=headers)[0].status, 403)
+        self.assertEqual(self.call('/api/status', headers={
+            'Origin': f'http://127.0.0.1:{self.port}'})[0].status, 200)
+
+    def test_health_proves_token_possession_without_receiving_token(self):
+        self.assertTrue(window.alive(self.port, TOKEN, self.app.identity))
+        self.assertFalse(window.alive(self.port, TOKEN, 'another-configuration'))
+        self.assertFalse(window.alive(self.port, 'wrong-token', self.app.identity))
+        self.assertEqual(self.call('/api/health?nonce=invalid', token=None)[0].status, 400)
+        self.assertEqual(self.call('/api/search?q=one&q=two')[0].status, 400)
 
     def test_wrong_host_is_refused_even_with_the_token(self):
         for host in ('evil.example', 'localhost:%d' % self.port, '127.0.0.1:1'):
@@ -262,6 +288,27 @@ class Portability(unittest.TestCase):
         with self.assertRaises(SystemExit), mock.patch('sys.stderr'):
             window.parser().parse_args(['--store', 'nobody=x'])
 
+    def test_service_identity_changes_with_configuration(self):
+        parse = window.parser().parse_args
+        first = window.configuration_id(parse(['--only', 'claude']), 'cache', 47620)
+        for args, folder, port in ((parse(['--only', 'codex']), 'cache', 47620),
+                                   (parse(['--only', 'claude']), 'other-cache', 47620),
+                                   (parse(['--only', 'claude']), 'cache', 47622),
+                                   (parse(['--demo']), 'cache', 47620),
+                                   (parse(['--only', 'claude', '--store', 'claude=other']), 'cache', 47620)):
+            self.assertNotEqual(first, window.configuration_id(args, folder, port))
+
+    def test_invalid_ports_are_rejected_before_launch(self):
+        for value in ('0', '-1', '80', '65536'):
+            with self.assertRaises(SystemExit), mock.patch('sys.stderr'):
+                window.main(['--demo', '--port', value])
+
+    @unittest.skipUnless(shutil.which("node"), "Optional UI regression requires an existing Node runtime")
+    def test_frontend_discards_stale_search_and_passage_responses(self):
+        result = subprocess.run([shutil.which("node"), str(ROOT / "tests" / "window_ui_test.cjs")],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+
     def test_words(self):
         self.assertEqual(window.words_of('a pricing an pricing plan'), ['pricing', 'plan'])
         self.assertEqual(window.words_of(' ab '), ['ab'])
@@ -272,9 +319,12 @@ class Portability(unittest.TestCase):
             held.bind(('127.0.0.1', 0))
             held.listen(1)
             port = held.getsockname()[1]
-            args = window.parser().parse_args(['--only', 'pi', '--store', 'pi=' + folder])
-            self.assertEqual(window.serve(args, port, folder), 1)
-            self.assertFalse(window.token_path(folder, port).exists())
+            store = Path(folder) / 'histories'
+            store.mkdir()
+            cache = Path(folder) / 'cache'
+            args = window.parser().parse_args(['--only', 'pi', '--store', 'pi=' + str(store)])
+            self.assertEqual(window.serve(args, port, cache), 1)
+            self.assertFalse(window.token_path(cache, port).exists())
 
     @unittest.skipIf(os.name == 'nt', 'POSIX file modes')
     def test_token_file_is_private(self):

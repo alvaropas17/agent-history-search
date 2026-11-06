@@ -43,16 +43,19 @@ footer{padding:4px 12px;border-top:1px solid var(--line);color:var(--mut);font-s
 <div id="toast"></div>
 <script>
 "use strict";
-const TOKEN=new URLSearchParams(location.search).get("t")||"";
+let TOKEN=location.hash.slice(1)||new URLSearchParams(location.search).get("t")||"";
+try{if(TOKEN)sessionStorage.setItem("history-window-token",TOKEN);else TOKEN=sessionStorage.getItem("history-window-token")||""}catch(_){}
+if(location.hash||location.search)history.replaceState(null,"",location.pathname);
 const $=id=>document.getElementById(id);
 const q=$("q"),host=$("host"),list=$("list"),detail=$("detail"),text=$("text");
-let results=[],words=[],sel=-1,seq=0,timer=0,cur=null,curText="",indexing=false;
+let results=[],words=[],sel=-1,seq=0,detailSeq=0,timer=0,cur=null,curText="",indexing=false;
+window.onerror=()=>{$("status").textContent="The interface encountered an error. Open the window again."};
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");setTimeout(()=>t.classList.remove("on"),1200)}
 async function api(path,params){
   const u=new URL(path,location.href);u.search=new URLSearchParams(params).toString();
   let r;
-  try{r=await fetch(u,{headers:{"X-Token":TOKEN},cache:"no-store"})}
+  try{r=await fetch(u,{headers:{"X-Token":TOKEN},cache:"no-store",credentials:"omit",redirect:"error"})}
   catch(_){throw new Error("The search server has stopped. Open the window again.")}
   const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
 function hl(parent,s,ws){
@@ -78,7 +81,7 @@ function render(){
   const s=list.querySelector(".sel");if(s)s.scrollIntoView({block:"nearest"});
 }
 async function search(){
-  const my=++seq,v=q.value.trim();
+  const my=++seq,v=q.value.trim();closeDetail();
   if(!v){results=[];sel=-1;closeDetail();render();return}
   try{const j=await api("api/search",{q:v,host:host.value});
     if(my!==seq)return;results=j.results;words=j.words||[];sel=results.length?0:-1;render()}
@@ -90,18 +93,20 @@ function setDetail(j,append){
   cur.next=j.next_offset;$("b-more").hidden=j.next_offset==null;
 }
 async function openDetail(){
-  const r=results[sel];if(!r)return;cur={r,next:null};
+  const r=results[sel];if(!r)return;const my=++detailSeq;cur={r,next:null};curText="";
+  $("b-more").hidden=true;
   detail.hidden=false;
   $("dmeta").textContent=fmt(r.timestamp)+" | "+r.host+" | "+(r.title||r.session)+" | "+r.session;
-  $("b-resume").hidden=r.host!=="claude";
+  $("b-resume").hidden=r.host!=="claude"||!/^[A-Za-z0-9_-]{1,200}$/.test(String(r.session));
   text.textContent="Loading...";
-  try{setDetail(await api("api/expand",{ref:r.ref,context:1500}),false)}catch(e){text.textContent="Error: "+e.message}
+  try{const j=await api("api/expand",{ref:r.ref,context:1500});if(my===detailSeq)setDetail(j,false)}catch(e){if(my===detailSeq)text.textContent="Error: "+e.message}
 }
 async function more(){
   if(!cur||cur.next==null)return;
-  try{setDetail(await api("api/expand",{ref:cur.r.ref,context:3000,offset:cur.next}),true)}catch(e){toast("Error: "+e.message)}
+  const my=detailSeq,ref=cur.r.ref,offset=cur.next;$("b-more").disabled=true;
+  try{const j=await api("api/expand",{ref,context:3000,offset});if(my===detailSeq)setDetail(j,true)}catch(e){if(my===detailSeq)toast("Error: "+e.message)}finally{$("b-more").disabled=false}
 }
-function closeDetail(){detail.hidden=true;cur=null;q.focus()}
+function closeDetail(){detailSeq++;detail.hidden=true;cur=null;curText="";q.focus()}
 async function copy(s,label){
   try{await navigator.clipboard.writeText(s)}catch(_){const t=el("textarea");t.value=s;document.body.append(t);t.select();document.execCommand("copy");t.remove()}
   toast("Copied "+label)}
@@ -117,7 +122,7 @@ async function status(){
   if(finished&&q.value.trim())search();
   if(j.indexing)setTimeout(status,1000);
 }
-q.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(search,120);if(!indexing)setTimeout(status,600)});
+q.addEventListener("input",()=>{seq++;clearTimeout(timer);timer=setTimeout(search,120);if(!indexing)setTimeout(status,600)});
 host.addEventListener("change",search);
 $("b-frag").onclick=()=>copy(curText,"excerpt");
 $("b-id").onclick=()=>cur&&copy(cur.r.session,"session ID");

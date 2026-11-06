@@ -1,6 +1,6 @@
 # Using it from each agent
 
-The integration is a CLI plus instructions/skill, with an optional stdio MCP server (`history_mcp.py`, see the README) for agents that support MCP. It is not a plugin or a native tool, and there is no automatic installer. Before changing any configuration, read the documentation of the version you target and make an exclusive backup of every file you edit.
+For Codex and Claude Code, prefer the included stdio MCP server (`history_mcp.py`, see the README). OpenCode, Pi, omp and Pi Pocket currently use the CLI with instructions or a skill. Existing native tools and the connector-first route in the skill retain priority. There is no automatic installer. Before changing configuration, read the documentation for the installed version, show the proposed change and make an exclusive backup of every file you edit. Preserve unrelated settings and servers.
 
 ## One shared installation
 
@@ -44,14 +44,22 @@ For a human-readable export, Pocket offers Menu → Export as Markdown and `/exp
 
 ## Codex and Claude Code
 
-Both use the same CLI, with no plugin or native tool. Expose the `skill/` folder as `agent-history-search` through the skills mechanism your installed version supports. Common locations are `~/.codex/skills` and `~/.claude/skills`; check discovery in a new session instead of assuming every version loads those paths.
+For local histories, prefer the included MCP server `history_mcp.py`, which uses the same reader as the CLI. Follow the commands and configuration in the [README](../README.md#optional-mcp-server): Claude Code uses `claude mcp add`; Codex registers `agent_history_search` in `~/.codex/config.toml`. Check the installed version before configuration. Show the change, create an exclusive backup and preserve all other settings and servers. Review an existing entry instead of creating a duplicate. Use absolute interpreter and script paths, a fixed `--host` and an allow-list of only approved stores. Another source also requires an explicit request, `source` and `reason`.
 
-Codex: `--host codex --store /path/.codex/sessions`. Claude Code: `--host claude --store /path/.claude/projects`. Use `list` to list, `search --query "topic"` to search and `read --session EXACT-ID --store FILE.jsonl` to read. Use the path returned by the listing so the CLI does not scan the whole profile. Archived files, extra profiles and nested subagents need explicit paths. Only user/assistant messages are read, with no tools or reasoning, and neither the active branch nor in-memory selection is verified. No cloud service is queried.
+In a new session, verify the actual MCP `history_search` route with `action: list` and `limit: 1`, then read the returned exact ID and store and search for a known term chosen by the user. Obtain read permission first. A successful CLI test does not verify MCP. If MCP fails, report the error before offering the CLI; never use it to bypass a rejection.
+
+The CLI remains an explicit alternative. Expose the `skill/` folder as `agent-history-search` through the skills mechanism your installed version supports. Common locations are `~/.codex/skills` and `~/.claude/skills`; check discovery in a new session instead of assuming every version loads those paths. Keep the skill's connector-first route for requested Codex or ChatGPT threads; local transcripts are not a substitute for ChatGPT cloud history.
+
+Codex: `--host codex --store /path/.codex/sessions`. Claude Code: `--host claude --store /path/.claude/projects`. Use `list` to list, `search --query "topic"` to search and `read --session EXACT-ID --store FILE.jsonl` to read. Use the path returned by the listing so the CLI does not scan the whole profile. Archived files, extra profiles and nested subagents need explicit paths. By default, only user/assistant messages are read, with no tools or reasoning. Tool calls and results require explicit `--tool-calls` in the CLI or `tool_calls` in MCP. Neither the active branch nor in-memory selection is verified. No cloud service is queried.
 
 ## Verifying without personal data
 
 1. Run the offline test suite.
 2. Use `--plan` with the host and store you approved; check the source and path.
-3. Check skill discovery in a new or reloaded session.
+3. In a new session, verify a real call through the configured MCP route; for the CLI route, check skill discovery in a new or reloaded session.
 4. Only with permission to read real history, run `list` with `--limit 1`, a short timeout and a consistent snapshot. Do not record private output in the repository.
-5. Report results and limits. A model reading a skill once does not guarantee it will always use it.
+5. Report results, failures and pending checks before offering another interface. A model reading a skill once does not guarantee it will always use it.
+
+## Optional desktop search window
+
+Desktop indexing, the search window and its hotkey are separate, opt-in features. Normal MCP or CLI search setup must not create or refresh history indexes, start a desktop listener or register a hotkey. Configure these features only after a separate explicit request and approval of their sources and paths.

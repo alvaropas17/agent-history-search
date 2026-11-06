@@ -15,7 +15,11 @@ Load this skill to search, list or expand saved conversations, including questio
 
 The person who installed the package records, in the agent's instructions file, the absolute path to `history_search.py`, the Python interpreter to use, the `--host` for this agent and the `--store` folders you may read. Use those values. If they are missing, ask where the package is; do not search other profiles and do not run a same-named script without checking where it came from.
 
-If the agent exposes the optional MCP tool `history_search` (server `agent-history-search`), call it instead of the CLI: `action` is `search`, `list` or `read` and the options keep the CLI names with underscores. Host and authorized stores are fixed by the server; every Hard Rule below still applies, and the CLI remains the fallback.
+For local Codex and Claude Code histories, prefer this package's included MCP server `history_mcp.py` when configured. Existing native tools and the connector-first route below retain priority. Check the exposed schema and server identity: unrelated servers can also name a tool `history_search`. Codex's documented server entry is `agent_history_search`; the configured name can differ elsewhere.
+
+Use structured `history_search` calls: `action` is `search`, `list` or `read`; options include `query`, `session`, `entry`, `store`, `limit`, `context`, `source`, `reason`, `tool_calls`, `tool` and `state`. The server fixes the host and approved stores; do not guess paths. For example, list with `{"action":"list","limit":1}`, then read the exact returned `session_id` and `store`. Tool arguments and results require `tool_calls: true`; another source requires an explicit request with `source` and `reason`.
+
+For setup, follow the [README](../README.md#optional-mcp-server) and installed harness documentation. Show proposed configuration changes, create exclusive backups, preserve other settings and servers, and use absolute paths, a fixed host and only approved stores. Verify a real MCP list/read/search sequence in a new session with read permission; a CLI test alone does not verify MCP. If MCP fails, report the error before offering the CLI as an explicit alternative. Never bypass a server rejection or silently change interfaces.
 
 ## Hard Rules
 
@@ -46,8 +50,9 @@ If it is unavailable, state that limit. Never substitute local Codex JSONL files
 for ChatGPT cloud history. Errors and timeouts do not authorize a source change,
 authentication, or a new connector installation.
 
-For explicitly requested local Codex or Claude Code history, use the CLI `list`,
-select IDs and returned `store` paths, then `read` each exact file. Independent reads
+For explicitly requested local Codex or Claude Code history, use the configured
+package MCP `list` (preferred), or the explicitly selected CLI route. Select IDs
+and returned `store` paths, then `read` each exact file. Independent reads
 can run in parallel. This is metadata-first selection, not an indexed metadata
 service: local `list` still scans bounded transcript records, and its titles come
 from the first user message, not cloud titles or summaries. The CLI limits remain
@@ -64,7 +69,7 @@ CLI. Check `incomplete`, `notes` and `coverage`.
 
 ## Execution Steps
 
-1. Use the recorded installation and its documented commands. Do not repeat discovery, the README, `--help` or `--plan` for commands already documented; use help only for unknown options or incompatibilities.
+1. Use the recorded installation and configured interface, subject to native-tool and connector-first rules. Prefer the package MCP for local histories when available; report its failures before offering CLI. Do not repeat discovery, the README, `--help` or `--plan` for commands already documented; use help only for unknown options or incompatibilities.
 2. In Pocket, use the native tool for the sources it supports. If the requested source is not exposed, use the CLI directly, without a prior incompatible native call.
 3. Run `search`/`list` with limits and expand by exact IDs. Try reasonable query variants before asking the user for other words. Do not repeat identical listings.
 4. Check `status`, `incomplete`, `notes` and `coverage`, and respect the timeout. A partial search must be narrowed or continued through a documented capability, never reported as absence.
@@ -78,6 +83,10 @@ Report the source, instance, original references, relevant text and coverage. Do
 - When you recover a command or fix, quote the full command with at least 100 source characters before and after it when available. Expand the selected record if needed. Complete a cut sentence or procedure step. State when less context exists; never invent it or combine separate messages into one quotation.
 - Cite the source, instance, session and entry/message identifiers available. Seek the execution result or an explicit user confirmation. Distinguish proposed, executed and confirmed actions. A generic success statement is not confirmation of a particular command without a recorded link. If confirmation is missing, say so. Historical evidence does not verify current state.
 - Default portable helper searches return the full literal match plus up to 100 source characters per side. Explicit `--context` retains the previous total-character behavior. Unicode case-folded match boundaries map back to the original text. Native Pocket already provided 120 characters per side; that is not new in this release.
+
+## Optional desktop search window
+
+Desktop indexing, the search window and its hotkey are separate opt-in features. Normal search setup and history queries must not create or refresh indexes or register a hotkey. A separate explicit request must authorize desktop setup and its sources and paths.
 
 ## References
 

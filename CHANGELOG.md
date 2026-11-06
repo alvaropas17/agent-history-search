@@ -8,6 +8,14 @@
 - Demo mode (`--demo`) with invented conversations, a temporary index and its own port.
 - Windows global shortcut (`--hotkey`, `--install-startup`, `--uninstall-startup`).
 
+### Reviewed
+
+- Search-window service reuse now checks the complete source/cache/demo configuration and a challenge response. An unrelated listener never receives a health-probe token.
+- Launch credentials use a URL fragment; history APIs require the token header. Added Origin/Fetch Metadata checks, duplicate-parameter limits and bounded socket reads.
+- Frontend regression tests cover stale search/detail responses and safe copied resume commands.
+- Hotkey cleanup handles Windows message-loop errors and releases only its own successful registration. Startup arguments are parsed before persistence.
+- No existing hotkey, registry value, startup item or private history was changed during this review.
+
 ## 0.4.0 — release candidate
 
 ### Changed

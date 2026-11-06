@@ -42,6 +42,8 @@ CREATE TRIGGER IF NOT EXISTS docs_ad AFTER DELETE ON docs BEGIN
 CREATE TABLE IF NOT EXISTS src(sid INTEGER PRIMARY KEY, key TEXT UNIQUE, host TEXT,
     mtime INTEGER, size INTEGER, pos INTEGER, sess TEXT);
 CREATE TABLE IF NOT EXISTS titles(host TEXT, sess TEXT, title TEXT, PRIMARY KEY(host, sess));
+CREATE TABLE IF NOT EXISTS scoped_titles(scope TEXT, sess TEXT, title TEXT,
+    PRIMARY KEY(scope, sess));
 """
 
 
@@ -214,14 +216,56 @@ class Index:
         self.path = Path(path)
         self.stores = dict(stores)
         self.skipped = {}
-        unknown = set(self.stores) - set(SOURCES)
-        if unknown:
-            raise HistoryError('unknown_source:' + ','.join(sorted(unknown)))
+        # A cache can be shared by different configurations. Bind both messages
+        # and titles to the canonical host/store pair, never just to the host.
+        # Empty stores is the existing explicit demo mode, with separate scopes.
+        self._refresh_scopes()
         check_sqlite()
         con = self.writer()
         con.close()
 
+    def _refresh_scopes(self):
+        unknown = set(self.stores) - set(SOURCES)
+        if unknown:
+            raise HistoryError('unknown_source:' + ','.join(sorted(unknown)))
+        self._scopes = {
+            host: hashlib.sha256(json.dumps([host, str(Path(store).resolve())],
+                                            ensure_ascii=True).encode()).hexdigest()
+            for host, store in self.stores.items()}
+        if not self.stores:
+            self._scopes = {host: 'demo-' + host for host in SOURCES}
+
+    def _check_cache_path(self):
+        target = self.path.resolve()
+        cache_directory = self.path.parent.resolve()
+        candidates = [target] + [Path(str(target) + suffix) for suffix in ('-wal', '-shm', '-journal')]
+        # Hard links can alias a file inside a directory store without sharing its
+        # path. Refuse them rather than scanning every original file to find it.
+        for candidate in candidates:
+            if candidate.is_file() and candidate.stat().st_nlink > 1:
+                raise HistoryError('cache_has_hard_link_alias')
+        for store in self.stores.values():
+            root = Path(store).resolve()
+            directory = root.is_dir() or (not root.exists() and root.suffix.lower() not in
+                                           ('.jsonl', '.db', '.sqlite', '.sqlite3'))
+            if directory and (cache_directory == root or root in cache_directory.parents):
+                raise HistoryError('cache_inside_history_store')
+            protected = [root]
+            if not directory:
+                protected += [Path(str(root) + suffix) for suffix in ('-wal', '-shm', '-journal')]
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                if directory and (resolved == root or root in resolved.parents):
+                    raise HistoryError('cache_inside_history_store')
+                for original in protected:
+                    if resolved == original.resolve():
+                        raise HistoryError('cache_aliases_history_store')
+                    if candidate.exists() and original.exists() and candidate.samefile(original):
+                        raise HistoryError('cache_aliases_history_store')
+
     def writer(self):
+        self._refresh_scopes()
+        self._check_cache_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(self.path, timeout=30)
         con.execute('PRAGMA journal_mode=WAL')
@@ -230,9 +274,21 @@ class Index:
         return con
 
     def reader(self):
+        self._refresh_scopes()
         con = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
         con.execute('PRAGMA query_only=ON')
         return con
+
+    def _source_key(self, host, key):
+        if host not in self._scopes:
+            raise HistoryError('source_not_configured:' + host)
+        return self._scopes[host] + ':' + key
+
+    def _scope_filter(self, hosts, alias='d'):
+        clauses = ' OR '.join('(s.host=? AND s.key LIKE ?)' for _ in hosts)
+        params = [value for host in hosts for value in (host, self._scopes[host] + ':%')]
+        return (f'EXISTS (SELECT 1 FROM src s WHERE s.sid={alias}.src '
+                f'AND s.host={alias}.host AND ({clauses}))', params)
 
     # --- writing ---------------------------------------------------------------------
 
@@ -243,11 +299,11 @@ class Index:
             for source, store in self.stores.items():
                 try:
                     if source in JSONL:
-                        added[source] = self._update_jsonl(con, source, Path(store))
+                        added[source] = self._update_jsonl(con, source, Path(store).resolve())
                     elif source == 'pocket':
-                        added[source] = self._update_pocket(con, Path(store))
+                        added[source] = self._update_pocket(con, Path(store).resolve())
                     else:
-                        added[source] = self._update_opencode(con, Path(store))
+                        added[source] = self._update_opencode(con, Path(store).resolve())
                     con.commit()
                 except (OSError, sqlite3.Error, HistoryError) as exc:
                     con.rollback()
@@ -257,8 +313,7 @@ class Index:
         self.skipped = skipped
         return added
 
-    @staticmethod
-    def _insert(con, rows):
+    def _insert(self, con, rows):
         if not rows:
             return 0
         con.executemany('INSERT INTO docs(host,sess,role,ts,src,ext,text) VALUES(?,?,?,?,?,?,?)', rows)
@@ -266,13 +321,14 @@ class Index:
         for host, session, role, _ts, _src, _ext, body in rows:
             if role == 'user':
                 line = next((x.strip() for x in body.splitlines() if x.strip()), '')
-                con.execute('INSERT OR IGNORE INTO titles VALUES(?,?,?)', (host, session, line[:TITLE_CHARS]))
+                con.execute('INSERT OR IGNORE INTO scoped_titles VALUES(?,?,?)',
+                            (self._scopes[host], session, line[:TITLE_CHARS]))
         count = len(rows)
         rows.clear()
         return count
 
-    @staticmethod
-    def _source(con, key, host, session=''):
+    def _source(self, con, key, host, session=''):
+        key = self._source_key(host, key)
         row = con.execute('SELECT sid,mtime,size,pos,sess FROM src WHERE key=?', (key,)).fetchone()
         if row:
             return row
@@ -283,12 +339,17 @@ class Index:
     def _update_jsonl(self, con, host, root):
         if not root.exists():
             return 0
-        known = dict(con.execute('SELECT key,sid FROM src WHERE host=?', (host,)))
+        known = dict(con.execute('SELECT key,sid FROM src WHERE host=? AND key LIKE ?',
+                                 (host, self._scopes[host] + ':%')))
         files = [root] if root.is_file() else root.rglob('*.jsonl')
         seen, total = set(), 0
         for file in files:
-            key = str(file)
-            seen.add(key)
+            # Do not follow a transcript link outside an authorized directory.
+            resolved = file.resolve()
+            if file.is_symlink() or (root.is_dir() and root not in resolved.parents):
+                continue
+            key = str(resolved)
+            seen.add(self._source_key(host, key))
             try:
                 total += self._read_jsonl(con, host, file, key)
                 con.commit()
@@ -329,8 +390,8 @@ class Index:
                     total += self._insert(con, rows)
         total += self._insert(con, rows)
         if meta.get('title'):
-            con.execute('INSERT OR REPLACE INTO titles VALUES(?,?,?)',
-                        (host, meta['session'], str(meta['title'])[:TITLE_CHARS]))
+            con.execute('INSERT OR REPLACE INTO scoped_titles VALUES(?,?,?)',
+                        (self._scopes[host], meta['session'], str(meta['title'])[:TITLE_CHARS]))
         done = end == stat.st_size
         con.execute('UPDATE src SET mtime=?,size=?,pos=?,sess=? WHERE sid=?',
                     (stat.st_mtime_ns if done else 0, stat.st_size, end, meta['session'], sid))
@@ -362,13 +423,98 @@ class Index:
     def _update_pocket(self, con, store):
         if not store.is_file():
             return 0
-        return self._read_rows(con, 'pocket', str(store), store,
-                               'SELECT id,conversation_id,record FROM entries WHERE id>? ORDER BY id',
-                               pocket_rows)
+        total = self._read_rows(con, 'pocket', str(store), store,
+                                'SELECT id,conversation_id,record FROM entries WHERE id>? ORDER BY id',
+                                pocket_rows)
+        return total + self._pocket_titles(con, store)
+
+    def _pocket_titles(self, con, store):
+        """Replay the current Pocket session catalogue, not historical title values.
+
+        Catalogue revisions contain a base followed by set-operation deltas.
+        Title rows use a separate source so a rename replaces the previous text.
+        open_store keeps the existing read-only live-WAL behavior.
+        """
+        sid, mark, _size, pos, _session = self._source(con, f'{store}#titles', 'pocket')
+        current = signature(store)
+        if mark == current and pos:
+            return 0
+        source = open_store(store)
+        items = {}
+        try:
+            source.execute('BEGIN')
+            tables = tables_of(source)
+            if {'documents', 'document_revisions'} <= tables:
+                document = source.execute('SELECT id FROM documents WHERE kind IN (?,?) ORDER BY id LIMIT 1',
+                                          ('"pocket.sessions"', 'pocket.sessions')).fetchone()
+                if document:
+                    revisions = source.execute(
+                        'SELECT kind,CASE WHEN length(CAST(content AS BLOB))<=? THEN content END '
+                        'FROM document_revisions WHERE document_id=? ORDER BY seq', (MAX_LINE, document[0]))
+                    for kind, raw in revisions:
+                        if raw is None:
+                            raise HistoryError('pocket_title_revision_too_large')
+                        try:
+                            data = json.loads(raw)
+                        except (TypeError, ValueError, RecursionError):
+                            raise HistoryError('invalid_pocket_title_revision') from None
+                        if kind == 'base' and isinstance(data, dict):
+                            values = data.get('items') or {}
+                            if not isinstance(values, dict):
+                                raise HistoryError('invalid_pocket_title_items')
+                            items = {str(k): dict(v) for k, v in values.items() if isinstance(v, dict)}
+                        elif kind == 'delta' and isinstance(data, list):
+                            for operation in data:
+                                if not (isinstance(operation, list) and len(operation) == 3
+                                        and operation[0] == 's' and isinstance(operation[1], list)):
+                                    raise HistoryError('unsupported_pocket_title_operation')
+                                path, value = operation[1:]
+                                if path == ['items'] and isinstance(value, dict):
+                                    items = {str(k): dict(v) for k, v in value.items() if isinstance(v, dict)}
+                                elif len(path) == 2 and path[0] == 'items':
+                                    if isinstance(value, dict):
+                                        items[str(path[1])] = dict(value)
+                                    elif value is None:
+                                        items.pop(str(path[1]), None)
+                                    else:
+                                        raise HistoryError('invalid_pocket_title_item')
+                                elif len(path) == 3 and path[0] == 'items' and str(path[1]) in items:
+                                    items[str(path[1])][str(path[2])] = value
+                                elif path and path[0] == 'items':
+                                    raise HistoryError('unsupported_pocket_title_path')
+                        else:
+                            raise HistoryError('unsupported_pocket_title_revision')
+            elif 'documents' in tables or 'document_revisions' in tables:
+                raise HistoryError('incomplete_pocket_title_schema')
+        finally:
+            source.close()
+        con.execute('DELETE FROM docs WHERE src=?', (sid,))
+        con.execute('DELETE FROM scoped_titles WHERE scope=?', (self._scopes['pocket'],))
+        # A removed catalogue title must not survive as display metadata. Restore
+        # first-user-line fallbacks for conversations without a current title.
+        scope, params = self._scope_filter(['pocket'])
+        for session, body in con.execute(
+                f"SELECT d.sess,d.text FROM docs d WHERE {scope} AND d.role='user' ORDER BY d.id", params):
+            line = next((x.strip() for x in body.splitlines() if x.strip()), '')
+            con.execute('INSERT OR IGNORE INTO scoped_titles VALUES(?,?,?)',
+                        (self._scopes['pocket'], session, line[:TITLE_CHARS]))
+        rows = []
+        for session, item in items.items():
+            title = item.get('title')
+            if isinstance(title, str) and title.strip():
+                con.execute('INSERT OR REPLACE INTO scoped_titles VALUES(?,?,?)',
+                            (self._scopes['pocket'], session, title[:TITLE_CHARS]))
+                rows.append(('pocket', session, 'title', millis(item.get('updatedAt') or item.get('createdAt')),
+                             sid, 0, title))
+        total = self._insert(con, rows)
+        con.execute('UPDATE src SET mtime=?,pos=1 WHERE sid=?', (current, sid))
+        return total
 
     def _update_opencode(self, con, store):
         total = 0
         for database in [store] if store.is_file() else sorted(store.glob('*.db')):
+            if database.is_symlink() or (store.is_dir() and store not in database.resolve().parents):
+                continue
             source = open_store(database)
             try:
                 tables = tables_of(source)
@@ -397,8 +543,8 @@ class Index:
         try:
             for table in ('session_v2', 'session'):  # Constants, never input.
                 if table in tables:
-                    con.executemany("INSERT OR REPLACE INTO titles VALUES('opencode',?,?)",
-                                    [(i, t[:TITLE_CHARS]) for i, t in
+                    con.executemany('INSERT OR REPLACE INTO scoped_titles VALUES(?,?,?)',
+                                    [(self._scopes['opencode'], i, t[:TITLE_CHARS]) for i, t in
                                      source.execute(f'SELECT id,title FROM {table}') if t])
         finally:
             source.close()
@@ -408,10 +554,12 @@ class Index:
         """Insert (host, session, title, role, ts, text) rows directly. Used by demo mode only."""
         con = self.writer()
         try:
-            con.executemany('INSERT OR REPLACE INTO titles VALUES(?,?,?)',
-                            sorted({(m[0], m[1], m[2]) for m in messages}))
-            con.executemany('INSERT INTO docs(host,sess,role,ts,src,ext,text) VALUES(?,?,?,?,0,0,?)',
-                            [(m[0], m[1], m[3], m[4], m[5]) for m in messages])
+            messages = list(messages)
+            sources = {host: self._source(con, '#demo', host)[0] for host in {m[0] for m in messages}}
+            con.executemany('INSERT OR REPLACE INTO scoped_titles VALUES(?,?,?)',
+                            sorted({(self._scopes[m[0]], m[1], m[2]) for m in messages}))
+            con.executemany('INSERT INTO docs(host,sess,role,ts,src,ext,text) VALUES(?,?,?,?,?,0,?)',
+                            [(m[0], m[1], m[3], m[4], sources[m[0]], m[5]) for m in messages])
             con.commit()
         finally:
             con.close()
@@ -421,7 +569,8 @@ class Index:
     def counts(self):
         con = self.reader()
         try:
-            return dict(con.execute('SELECT host,COUNT(*) FROM docs GROUP BY host'))
+            scope, params = self._scope_filter(list(self._scopes))
+            return dict(con.execute(f'SELECT d.host,COUNT(*) FROM docs d WHERE {scope} GROUP BY d.host', params))
         finally:
             con.close()
 
@@ -429,10 +578,11 @@ class Index:
         """Best message per session for any of the words, literal and case-insensitive."""
         if not words or any(not isinstance(w, str) or not w for w in words):
             raise HistoryError('search_requires_words')
-        if host != 'all' and host not in SOURCES:
-            raise HistoryError('unknown_source')
-        hosts = list(SOURCES) if host == 'all' else [host]
-        marks = ','.join('?' for _ in hosts)
+        self._refresh_scopes()
+        if host != 'all' and host not in self._scopes:
+            raise HistoryError('source_not_configured')
+        hosts = list(self._scopes) if host == 'all' else [host]
+        scope, params = self._scope_filter(hosts)
         con = self.reader()
         try:
             if all(len(w) >= 3 for w in words):  # The trigram index needs 3 characters.
@@ -441,16 +591,16 @@ class Index:
                     'SELECT id,host,sess,role,ts,text FROM (SELECT *, ROW_NUMBER() OVER '
                     '(PARTITION BY host,sess ORDER BY score,id) AS place FROM ('
                     'SELECT d.id,d.host,d.sess,d.role,d.ts,d.text,bm25(docs_fts) AS score '
-                    f'FROM docs_fts JOIN docs d ON d.id=docs_fts.rowid WHERE d.host IN ({marks}) '
+                    f'FROM docs_fts JOIN docs d ON d.id=docs_fts.rowid WHERE {scope} '
                     'AND docs_fts MATCH ?)) WHERE place=1 ORDER BY score,id LIMIT ?',
-                    (*hosts, match, limit)).fetchall()
+                    (*params, match, limit)).fetchall()
             else:
                 escaped = [w.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') for w in words]
-                like = ' OR '.join("text LIKE ? ESCAPE '\\'" for _ in words)
+                like = ' OR '.join("d.text LIKE ? ESCAPE '\\'" for _ in words)
                 recent = con.execute(
-                    f'SELECT id,host,sess,role,ts,text FROM docs WHERE host IN ({marks}) AND ({like}) '
-                    'ORDER BY ts DESC,id DESC LIMIT ?',
-                    (*hosts, *('%' + w + '%' for w in escaped), SHORT_SCAN_ROWS)).fetchall()
+                    f'SELECT d.id,d.host,d.sess,d.role,d.ts,d.text FROM docs d WHERE {scope} AND ({like}) '
+                    'ORDER BY d.ts DESC,d.id DESC LIMIT ?',
+                    (*params, *('%' + w + '%' for w in escaped), SHORT_SCAN_ROWS)).fetchall()
                 best = {}
                 for row in recent:
                     best.setdefault((row[1], row[2]), row)
@@ -460,8 +610,8 @@ class Index:
             for row_id, source, session, role, stamp, body in rows:
                 found = pattern.search(body)
                 anchor = found.start() if found else 0
-                title = con.execute('SELECT title FROM titles WHERE host=? AND sess=?',
-                                    (source, session)).fetchone()
+                title = con.execute('SELECT title FROM scoped_titles WHERE scope=? AND sess=?',
+                                    (self._scopes[source], session)).fetchone()
                 results.append({'host': source, 'session': session, 'role': role, 'timestamp': stamp,
                                 'title': title[0] if title else '',
                                 'ref': f'{row_id}:{digest(body)}:{anchor}', **excerpt(body, anchor, context)})
@@ -475,7 +625,9 @@ class Index:
         row_id, expected, anchor = ref.split(':')
         con = self.reader()
         try:
-            row = con.execute('SELECT text FROM docs WHERE id=?', (int(row_id),)).fetchone()
+            scope, params = self._scope_filter(list(self._scopes))
+            row = con.execute(f'SELECT d.text FROM docs d WHERE d.id=? AND {scope}',
+                              (int(row_id), *params)).fetchone()
         finally:
             con.close()
         if row is None or digest(row[0]) != expected:

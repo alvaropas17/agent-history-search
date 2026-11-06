@@ -24,6 +24,8 @@ FILES = (
     'docs/images/search-window.png',
     'tests/test_index.py',
     'tests/test_window.py',
+    'tests/test_hotkey_runtime.py',
+    'tests/window_ui_test.cjs',
     'tests/test_mcp_server.py',
     'agent_history/__main__.py',
     'agent_history/cli.py',

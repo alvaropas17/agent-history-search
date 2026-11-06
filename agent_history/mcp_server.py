@@ -74,6 +74,7 @@ def tool_schema(host, sources):
                           'description': 'Exact path returned by list; must be inside an authorized store.'},
             },
             'required': ['action'],
+            'additionalProperties': False,
         },
         'annotations': {'readOnlyHint': True, 'idempotentHint': True, 'openWorldHint': False},
     }
@@ -85,6 +86,26 @@ def inside(path, root):
 
 
 def build_argv(args, host, stores):
+    if not isinstance(args, dict):
+        raise ToolError('arguments_must_be_object')
+    schema = tool_schema(host, tuple(stores))['inputSchema']['properties']
+    for key, value in args.items():
+        if key not in schema:
+            raise ToolError('unknown_argument: ' + key)
+        rule = schema[key]
+        expected = {'string': str, 'integer': int, 'boolean': bool, 'array': list}[rule['type']]
+        if type(value) is not expected:
+            raise ToolError('invalid_argument_type: ' + key)
+        if key != 'source' and 'enum' in rule and value not in rule['enum']:
+            raise ToolError('invalid_argument_value: ' + key)
+        if expected is int and not rule['minimum'] <= value <= rule['maximum']:
+            raise ToolError('argument_out_of_range: ' + key)
+        if expected is str and (len(value) > 8192 or '\x00' in value):
+            raise ToolError('invalid_argument_value: ' + key)
+        if expected is list and (len(value) > rule['maxItems'] or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 2000 or '\x00' in item
+                for item in value)):
+            raise ToolError('invalid_argument_value: ' + key)
     action = args.get('action')
     if action not in ('search', 'list', 'read'):
         raise ToolError('invalid_action')
@@ -98,14 +119,14 @@ def build_argv(args, host, stores):
     if source != host:
         argv += ['--source', source]
     if args.get('reason'):
-        argv += ['--reason', str(args['reason'])]
+        argv += ['--reason=' + args['reason']]
     if args.get('query'):
-        argv += ['--query', str(args['query'])]
+        argv += ['--query=' + args['query']]
     for variant in args.get('query_variants') or []:
-        argv += ['--query-variant', str(variant)]
+        argv += ['--query-variant=' + variant]
     for key in ('session', 'entry', 'since', 'until', 'tool'):
         if args.get(key) is not None:
-            argv += ['--' + key, str(args[key])]
+            argv += ['--' + key + '=' + args[key]]
     for key in ('limit', 'context'):
         if args.get(key) is not None:
             argv += ['--' + key, str(int(args[key]))]
@@ -134,6 +155,9 @@ def run_tool(args, host, stores):
                   'automatic_fallback': False}
     except subprocess.TimeoutExpired:
         result = {'schema_version': 1, 'status': 'error', 'error': 'server_timeout',
+                  'automatic_fallback': False}
+    except (OSError, ValueError, RuntimeError):
+        result = {'schema_version': 1, 'status': 'error', 'error': 'invalid_path_or_cli_unavailable',
                   'automatic_fallback': False}
     text = json.dumps(result, ensure_ascii=False, separators=(',', ':'))
     return {'content': [{'type': 'text', 'text': text}], 'isError': result.get('status') == 'error'}
