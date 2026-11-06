@@ -10,6 +10,9 @@
 
 ### Reviewed
 
+- Pocket session titles are searchable, with base/delta replay, rename/removal handling and explicit reporting of unsupported catalogue operations.
+- Indexed rows, display titles, counts and references are scoped to the configured host/store pair. Shared caches cannot expose another configuration's histories.
+- Cache and token paths are checked against original histories and aliases before writes.
 - Search-window service reuse now checks the complete source/cache/demo configuration and a challenge response. An unrelated listener never receives a health-probe token.
 - Launch credentials use a URL fragment; history APIs require the token header. Added Origin/Fetch Metadata checks, duplicate-parameter limits and bounded socket reads.
 - Frontend regression tests cover stale search/detail responses and safe copied resume commands.

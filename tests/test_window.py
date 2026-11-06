@@ -143,7 +143,9 @@ class Server(unittest.TestCase):
         for path in ('/api/search?q=pricing&host=nobody', '/api/expand?ref=nope',
                      '/api/expand?ref=1:aaaaaaaaaaaaaaaaaaaa:0&context=abc',
                      '/api/expand?ref=1:aaaaaaaaaaaaaaaaaaaa:0&context=0',
-                     '/api/expand?ref=1:aaaaaaaaaaaaaaaaaaaa:0&offset=-1'):
+                     '/api/expand?ref=1:aaaaaaaaaaaaaaaaaaaa:0&offset=-1',
+                     '/api/expand?ref=9999999999999999999:aaaaaaaaaaaaaaaaaaaa:0',
+                     '/api/expand?ref=1:aaaaaaaaaaaaaaaaaaaa:0&offset=99999999999999999999'):
             self.assertEqual(self.call(path)[0].status, 400, path)
         self.assertEqual(self.call('/nothing')[0].status, 404)
 
@@ -287,6 +289,15 @@ class Portability(unittest.TestCase):
             window.selected_stores(window.parser().parse_args(['--only', 'nobody']))
         with self.assertRaises(SystemExit), mock.patch('sys.stderr'):
             window.parser().parse_args(['--store', 'nobody=x'])
+
+    def test_token_cannot_replace_an_authorized_source(self):
+        with temp('history-token-alias-test-') as folder:
+            path = window.token_path(folder, 47622)
+            path.write_text('synthetic source bytes', encoding='utf-8')
+            before = path.read_bytes()
+            with self.assertRaisesRegex(HistoryError, 'token_aliases_history_store'):
+                window.validate_token_path({'claude': path}, folder, 47622)
+            self.assertEqual(path.read_bytes(), before)
 
     def test_service_identity_changes_with_configuration(self):
         parse = window.parser().parse_args

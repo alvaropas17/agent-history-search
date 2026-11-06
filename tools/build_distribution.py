@@ -22,6 +22,7 @@ FILES = (
     'agent_history/hotkey.py',
     'agent_history/demo.py',
     'docs/images/search-window.png',
+    'docs/agent-history-search.png',
     'tests/test_index.py',
     'tests/test_window.py',
     'tests/test_hotkey_runtime.py',

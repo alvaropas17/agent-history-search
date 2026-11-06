@@ -73,6 +73,19 @@ def configuration_id(args, folder, port):
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+def validate_token_path(stores, folder, port):
+    candidate = token_path(folder, port).resolve()
+    for store in stores.values():
+        source = Path(store).expanduser().resolve()
+        if source.is_dir() and (source == candidate or source in candidate.parents):
+            raise HistoryError('cache_inside_history_store')
+        protected = [source] + [Path(str(source) + suffix) for suffix in ('-wal', '-shm', '-journal')]
+        for original in protected:
+            if (candidate == original.resolve()
+                    or candidate.exists() and original.exists() and candidate.samefile(original)):
+                raise HistoryError('token_aliases_history_store')
+
+
 def write_private(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -402,7 +415,9 @@ def serve(args, port, folder):
         index = Index(Path(demo_folder) / 'demo.sqlite', {})
         index.add_messages(messages())
     else:
-        index = Index(Path(folder) / 'index-v1.sqlite', selected_stores(args))
+        stores = selected_stores(args)
+        validate_token_path(stores, folder, port)
+        index = Index(Path(folder) / 'index-v1.sqlite', stores)
     app = App(index, demo=args.demo, identity=configuration_id(args, folder, port))
     token = secrets.token_urlsafe(24)
     try:

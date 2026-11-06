@@ -623,6 +623,12 @@ class Index:
         if not isinstance(ref, str) or not REF.fullmatch(ref):
             raise HistoryError('invalid_reference')
         row_id, expected, anchor = ref.split(':')
+        if int(row_id) > 2**63 - 1:
+            raise HistoryError('invalid_reference')
+        if type(context) is not int or not 1 <= context <= 6000:
+            raise HistoryError('invalid_context')
+        if offset is not None and (type(offset) is not int or not 0 <= offset <= 2**31 - 1):
+            raise HistoryError('invalid_offset')
         con = self.reader()
         try:
             scope, params = self._scope_filter(list(self._scopes))

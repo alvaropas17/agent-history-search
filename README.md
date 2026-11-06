@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/agent-history-search.png" alt="Agent History Search" width="720">
+</p>
+
 # Agent History Search
 
 Search your past conversations with coding agents, from any of them. One
@@ -152,16 +156,22 @@ claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-hist
 claude mcp add agent-history-search --scope user -- py -3 -B C:\Tools\agent-history-search\history_mcp.py --host claude --store codex=$HOME\.codex\sessions
 ```
 
-Codex: add the server to `~/.codex/config.toml` (or run `codex mcp add`). Use absolute
-paths for the stores, because Codex starts MCP servers with a reduced environment.
+Codex: add the server to `~/.codex/config.toml` (or run `codex mcp add`). Back up
+that file, review an existing entry instead of creating a duplicate, and preserve
+unrelated settings. Use absolute paths because Codex starts MCP servers with a
+reduced environment. This example authorizes only Codex history:
 
 ```toml
 [mcp_servers.agent_history_search]
 command = "py"
 args = ["-3", "-B", "C:\\Tools\\agent-history-search\\history_mcp.py", "--host", "codex",
-        "--store", "claude=C:\\Users\\<you>\\.claude\\projects"]
+        "--store", "codex=C:\\Users\\<you>\\.codex\\sessions"]
 startup_timeout_sec = 30
 ```
+
+Add another `--store SOURCE=PATH` only after explicit approval for that source.
+A cross-source query still requires `source` and `reason`; adding a store does not
+permit silent fallback after an empty result or error.
 
 On macOS and Linux use `command = "python3"` and drop `"-3"`. The server answers the
 protocol version the client asks for (2024-11-05, 2025-03-26 or 2025-06-18), writes
@@ -234,7 +244,10 @@ with FTS5, and tells you if your Python build lacks it.
   SQLite create a file next to your database.
 - **Text only.** No tool calls. Pi and omp abandoned branches are included. One result
   per session, matching any of the words typed. Words under 3 characters are ignored
-  unless the whole search is that short.
+  unless the whole search is that short. Pocket session titles are searchable too.
+  A title hit expands the title, not the complete conversation; copy the session ID
+  to retrieve the conversation through your configured agent or history reader.
+  Cached rows, titles and references are isolated by the configured source paths.
 
 **Local access.** The server listens only on 127.0.0.1, checks the `Host` header, sends no
 CORS headers, and needs a random token created on each start. It logs nothing. The launcher passes the token in a URL fragment, not a query parameter. The page
