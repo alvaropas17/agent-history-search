@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buscar en el historial</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--line:#e3e3e8;--panel:#f5f5f7;--acc:#0a66d6;--sel:#e6f0fc;--mark:#fff1a8}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--fg:#f2f2f4;--mut:#9b9ba3;--line:#2c2c30;--panel:#1f1f22;--acc:#5aa2ff;--sel:#1e2c3f;--mark:#5b4d00}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,Segoe UI,sans-serif;display:flex;flex-direction:column}
+header{display:flex;gap:8px;padding:10px;border-bottom:1px solid var(--line)}
+#q{flex:1;font:inherit;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);outline:none}
+#q:focus{border-color:var(--acc)}
+select,button{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--acc)}
+main{flex:1;display:flex;min-height:0}
+#list{width:46%;min-width:280px;overflow:auto;border-right:1px solid var(--line);margin:0;padding:0;list-style:none}
+#list li{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+#list li.sel{background:var(--sel)}
+.meta{color:var(--mut);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}
+.agent{color:var(--acc);font-weight:600}
+.title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.snip{color:var(--fg);opacity:.85;font-size:13px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:break-word}
+mark{background:var(--mark);color:inherit;border-radius:2px}
+#detail{flex:1;display:flex;flex-direction:column;min-width:0}
+#detail[hidden]{display:none}
+#bar{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);align-items:center}
+#dmeta{flex:1;min-width:160px}
+#text{flex:1;overflow:auto;margin:0;padding:12px;white-space:pre-wrap;word-break:break-word;font:13px/1.5 ui-monospace,Consolas,monospace}
+#empty{padding:24px;color:var(--mut)}
+#toast{position:fixed;bottom:12px;right:12px;background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.on{opacity:.92}
+@media (max-width:700px){main{flex-direction:column}#list{width:100%;max-height:45%}}
+</style></head><body>
+<header><input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar en el historial de todos los agentes...">
+<select id="host"><option value="all">Todos</option><option>claude</option><option>codex</option><option>pi</option><option>omp</option><option>opencode</option><option>pocket</option></select></header>
+<div id="index-status" role="status" style="padding:4px 12px;color:var(--mut);font-size:12px">Índice local; rama activa no verificada.</div>
+<main><ul id="list"></ul>
+<section id="detail" hidden><div id="bar"><span id="dmeta" class="meta"></span>
+<button id="b-frag">Copiar fragmento</button><button id="b-id">Copiar ID</button><button id="b-resume" hidden>Copiar claude --resume</button><button id="b-more" hidden>Mas texto</button><button id="b-close">Cerrar</button></div>
+<pre id="text"></pre></section></main>
+<div id="toast"></div>
+<script>
+"use strict";
+const TOKEN=new URLSearchParams(location.search).get("t")||"";
+const $=id=>document.getElementById(id);
+const q=$("q"),host=$("host"),list=$("list"),detail=$("detail"),text=$("text");
+let results=[],words=[],sel=-1,seq=0,timer=0,cur=null,curText="";
+function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");setTimeout(()=>t.classList.remove("on"),1200)}
+async function api(path,params){
+  const u=new URL(path,location.href);u.search=new URLSearchParams(params).toString();
+  const r=await fetch(u,{headers:{"X-Token":TOKEN},cache:"no-store"});
+  const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+function hl(parent,s,ws){
+  const ws2=ws.filter(w=>w.length>=3);
+  if(!ws2.length){parent.append(document.createTextNode(s));return}
+  const low=s.toLowerCase();let i=0;
+  while(i<s.length){
+    let best=-1,bl=0;
+    for(const w of ws2){const p=low.indexOf(w.toLowerCase(),i);if(p>=0&&(best<0||p<best)){best=p;bl=w.length}}
+    if(best<0){parent.append(document.createTextNode(s.slice(i)));break}
+    if(best>i)parent.append(document.createTextNode(s.slice(i,best)));
+    parent.append(el("mark",null,s.slice(best,best+bl)));i=best+bl}
+}
+function fmt(ts){const d=new Date(ts);const p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())}
+function render(){
+  list.replaceChildren();
+  if(!results.length){const li=el("li",null,q.value.trim()?"Sin resultados":"Escribe para buscar");li.id="empty";list.append(li);return}
+  results.forEach((r,i)=>{
+    const li=el("li",i===sel?"sel":"");
+    const m=el("div","meta");m.append(el("span",null,fmt(r.timestamp)),el("span","agent",r.host),el("span",null,r.role));
+    li.append(m,el("div","title",r.title||r.session));
+    const sn=el("div","snip");hl(sn,r.text.replace(/\s+/g," "),words);li.append(sn);
+    li.addEventListener("click",()=>{sel=i;render();openDetail()});
+    list.append(li)});
+  const s=list.querySelector(".sel");if(s)s.scrollIntoView({block:"nearest"});
+}
+async function search(){
+  const my=++seq,v=q.value.trim();
+  if(!v){results=[];sel=-1;closeDetail();render();return}
+  try{const j=await api("api/search",{q:v,host:host.value});
+    if(my!==seq)return;$("index-status").textContent=j.index_update?.message||"Índice local; rama activa no verificada.";results=j.results;words=j.words||[];sel=results.length?0:-1;closeDetail();render()}
+  catch(e){if(my!==seq)return;results=[];list.replaceChildren(el("li",null,"Error: "+e.message))}
+}
+function setDetail(j,append){
+  curText=append?curText+j.text:j.text;
+  text.replaceChildren();hl(text,curText,words);
+  cur.next=j.next_offset;$("b-more").hidden=j.next_offset==null;
+}
+async function openDetail(){
+  const r=results[sel];if(!r)return;cur={r,next:null};
+  detail.hidden=false;
+  $("dmeta").textContent=fmt(r.timestamp)+" | "+r.host+" | "+(r.title||r.session)+" | "+r.session;
+  $("b-resume").hidden=r.host!=="claude";
+  text.textContent="Cargando...";
+  const current=cur;
+  try{const j=await api("api/expand",{ref:r.ref,context:1500});if(cur===current)setDetail(j,false)}catch(e){if(cur===current)text.textContent="Error: "+e.message}
+}
+async function more(){
+  if(!cur||cur.next==null)return;
+  const current=cur;
+  try{const j=await api("api/expand",{ref:current.r.ref,context:3000,offset:current.next});if(cur===current)setDetail(j,true)}catch(e){if(cur===current)toast("Error: "+e.message)}
+}
+function closeDetail(){detail.hidden=true;cur=null;q.focus()}
+async function copy(s,label){
+  try{await navigator.clipboard.writeText(s)}catch(_){const t=el("textarea");t.value=s;document.body.append(t);t.select();document.execCommand("copy");t.remove()}
+  toast("Copiado: "+label)}
+q.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(search,120)});
+host.addEventListener("change",search);
+$("b-frag").onclick=()=>copy(curText,"fragmento");
+$("b-id").onclick=()=>cur&&copy(cur.r.session,"ID de sesion");
+$("b-resume").onclick=()=>cur&&copy("claude --resume "+cur.r.session,"comando");
+$("b-more").onclick=more;$("b-close").onclick=closeDetail;
+document.addEventListener("keydown",e=>{
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){if(!results.length)return;e.preventDefault();
+    sel=Math.max(0,Math.min(results.length-1,sel+(e.key==="ArrowDown"?1:-1)));render();if(!detail.hidden)openDetail()}
+  else if(e.key==="Enter"){if(sel>=0){e.preventDefault();openDetail()}}
+  else if(e.key==="Escape"){if(!detail.hidden)closeDetail();else if(q.value){q.value="";search()}else window.close()}
+});
+q.focus();render();
+</script></body></html>
